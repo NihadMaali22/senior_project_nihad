@@ -1,0 +1,63 @@
+UNIVERSITY OF TECHNOLOGY — ACADEMIC REGULATIONS
+Internship Policy
+================================================================
+
+Article 12: Internship Program Overview
+
+Section 12.1: Purpose
+The internship program provides students with practical, supervised work experience in their field of study. Internships are designed to bridge the gap between academic learning and professional practice, and are a mandatory component of most degree programs.
+
+Section 12.2: Internship Types
+a) Internship 1 (CS490/IT490): Introductory field training at an approved organization. Duration: 8 weeks minimum.
+b) Internship 2 (CS491): Advanced field training building on skills developed in Internship 1. Duration: 8 weeks minimum.
+
+Article 13: Internship Eligibility
+
+Section 13.1: Internship 1 Requirements
+To register for Internship 1, a student must:
+a) Have completed a minimum of 60 credit hours.
+b) Have a cumulative GPA of 2.0 or higher.
+c) Be in good academic standing (not on probation or warning).
+d) Have completed all prerequisite courses as specified by the department.
+e) Have no unresolved academic integrity violations.
+f) Not be under any disciplinary action.
+
+Section 13.2: Internship 2 Requirements
+To register for Internship 2, a student must:
+a) Have completed a minimum of 90 credit hours.
+b) Have a cumulative GPA of 2.0 or higher.
+c) Have successfully completed Internship 1 with a minimum grade of D.
+d) Be in good academic standing.
+e) Have an approved internship placement at a recognized organization.
+
+Section 13.3: Probation and Internship
+Students who are on academic probation are NOT eligible to register for any internship course. This restriction is in place to ensure students focus on improving their academic performance before undertaking professional training.
+
+Article 14: Internship Procedures
+
+Section 14.1: Placement
+a) Students are responsible for securing their own internship placement, with support from the university's Career Services office.
+b) The internship placement must be approved by the department internship coordinator.
+c) The host organization must sign a cooperation agreement with the university.
+
+Section 14.2: Supervision
+a) Each intern is assigned a faculty supervisor and a field supervisor at the host organization.
+b) The faculty supervisor must conduct at least two site visits during the internship period.
+c) The intern must submit biweekly progress reports to their faculty supervisor.
+
+Section 14.3: Assessment
+The internship grade is based on:
+a) Field supervisor evaluation: 40%
+b) Faculty supervisor evaluation: 30%
+c) Final internship report: 20%
+d) Oral presentation: 10%
+
+Article 15: Internship Duration and Timing
+
+Section 15.1: Duration
+a) Each internship course requires a minimum of 240 working hours (approximately 8 weeks full-time).
+b) Part-time internships are permitted, with a minimum of 20 hours per week, extending the duration proportionally.
+
+Section 15.2: Timing
+a) Internships may be completed during the summer semester or during the regular academic year.
+b) Students completing internships during the regular semester may not register for more than 6 additional credit hours.

@@ -1,0 +1,118 @@
+# ============================================================
+# Decision-Making Academic Assistant — Docker Compose
+# ============================================================
+# Usage:
+#   docker-compose up -d              # Start all services
+#   docker-compose up -d postgres qdrant  # Start infra only
+#   docker-compose logs -f app        # Follow app logs
+# ============================================================
+
+version: "3.9"
+
+services:
+  # --------------------------------------------------------
+  # PostgreSQL — Student & Academic Data
+  # --------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: academic_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: academic_user
+      POSTGRES_PASSWORD: academic_pass_2024
+      POSTGRES_DB: academic_db
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U academic_user -d academic_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - academic_net
+
+  # --------------------------------------------------------
+  # Qdrant — Vector Database for Regulations
+  # --------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: academic_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    networks:
+      - academic_net
+
+  # --------------------------------------------------------
+  # Ollama — Local LLM Server
+  # --------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: academic_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment below for GPU support (NVIDIA)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - academic_net
+
+  # --------------------------------------------------------
+  # Application — Academic Decision Assistant
+  # --------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: academic_assistant
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override hosts to use Docker service names
+      DATABASE_URL: postgresql+asyncpg://academic_user:academic_pass_2024@postgres:5432/academic_db
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: http://ollama:11434
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    networks:
+      - academic_net
+
+volumes:
+  postgres_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  academic_net:
+    driver: bridge

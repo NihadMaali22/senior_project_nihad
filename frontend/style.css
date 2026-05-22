@@ -1,0 +1,464 @@
+:root {
+    --bg-dark: #0f172a;
+    --panel-bg: rgba(30, 41, 59, 0.7);
+    --panel-border: rgba(255, 255, 255, 0.1);
+    --primary: #8b5cf6;
+    --primary-hover: #7c3aed;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --success: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --msg-user: #8b5cf6;
+    --msg-bot: rgba(51, 65, 85, 0.8);
+    --radius: 20px;
+    --font-family: 'Tajawal', 'Outfit', sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--font-family);
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Background Blobs for Glassmorphism */
+.background-effects {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+.blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    opacity: 0.5;
+}
+.blob-1 {
+    width: 500px; height: 500px;
+    background: #8b5cf6;
+    top: -100px; left: -100px;
+    animation: float 10s ease-in-out infinite alternate;
+}
+.blob-2 {
+    width: 400px; height: 400px;
+    background: #0ea5e9;
+    bottom: -50px; right: -50px;
+    animation: float 12s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(50px, 50px) scale(1.1); }
+}
+
+.app-container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 900px;
+    height: 90vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.screen {
+    display: none;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+.screen.active {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 1;
+}
+
+/* Glassmorphism Panel */
+.glass-panel {
+    background: var(--panel-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+/* --- LOGIN SCREEN --- */
+.login-panel {
+    width: 400px;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.brand {
+    text-align: center;
+}
+.brand i {
+    font-size: 48px;
+    color: var(--primary);
+    margin-bottom: 10px;
+}
+.brand h1 {
+    font-size: 24px;
+    font-weight: 600;
+}
+.brand p {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.input-group {
+    position: relative;
+    margin-bottom: 20px;
+}
+.input-group i {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 20px;
+}
+.input-group input {
+    width: 100%;
+    padding: 15px 45px 15px 15px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    color: white;
+    font-size: 15px;
+    font-family: inherit;
+    transition: all 0.3s;
+}
+.input-group input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: rgba(0, 0, 0, 0.3);
+}
+
+button {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 12px;
+    background: var(--primary);
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.3s;
+}
+button:hover {
+    background: var(--primary-hover);
+    transform: translateY(-2px);
+}
+button:active {
+    transform: translateY(0);
+}
+
+.error-text {
+    color: var(--danger);
+    font-size: 14px;
+    text-align: center;
+    min-height: 20px;
+}
+
+/* --- CHAT SCREEN --- */
+.chat-panel {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.2);
+}
+.header-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+.avatar {
+    width: 45px; height: 45px;
+    background: var(--primary);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 24px;
+}
+.status h2 {
+    font-size: 18px;
+    font-weight: 500;
+}
+.online-indicator {
+    font-size: 12px;
+    color: var(--success);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.online-indicator::before {
+    content: '';
+    width: 8px; height: 8px;
+    background: var(--success);
+    border-radius: 50%;
+    display: inline-block;
+}
+
+#voice-toggle-btn,
+#logout-btn {
+    width: auto;
+    padding: 10px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 24px;
+}
+#voice-toggle-btn:hover,
+#logout-btn:hover {
+    color: white;
+    transform: none;
+    background: rgba(255, 255, 255, 0.1);
+}
+#voice-toggle-btn.voice-off {
+    color: var(--danger);
+}
+#voice-toggle-btn.voice-off i::before {
+    content: "\e49a"; /* Speaker slash icon */
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.chat-messages::-webkit-scrollbar {
+    width: 6px;
+}
+.chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+}
+
+.message {
+    display: flex;
+    flex-direction: column;
+    max-width: 80%;
+    animation: slideIn 0.3s ease-out;
+}
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.message.user {
+    align-self: flex-end;
+}
+.message.assistant {
+    align-self: flex-start;
+}
+
+.bubble {
+    padding: 15px 20px;
+    border-radius: 20px;
+    font-size: 15px;
+    line-height: 1.5;
+    word-wrap: break-word;
+}
+.user .bubble {
+    background: var(--msg-user);
+    border-bottom-left-radius: 5px;
+}
+.assistant .bubble {
+    background: var(--msg-bot);
+    border-bottom-right-radius: 5px;
+    border: 1px solid var(--panel-border);
+}
+
+.bubble h3 {
+    font-size: 14px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 15px;
+    margin-bottom: 5px;
+}
+.bubble ul {
+    padding-right: 20px;
+    margin-bottom: 15px;
+}
+.bubble li {
+    margin-bottom: 5px;
+}
+
+.decision-badge {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    margin-top: 10px;
+}
+.decision-APPROVED { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+.decision-REJECTED { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+.decision-PENDING { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+.citations {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.citation-box {
+    background: rgba(0,0,0,0.2);
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 5px;
+    border-right: 3px solid var(--primary);
+}
+
+.chat-input-container {
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--panel-border);
+}
+#chat-form {
+    display: flex;
+    gap: 15px;
+}
+#question-input {
+    flex: 1;
+    padding: 15px 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--panel-border);
+    border-radius: 25px;
+    color: white;
+    font-size: 15px;
+    font-family: inherit;
+}
+#question-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+#send-btn, #mic-btn {
+    width: 50px; height: 50px;
+    padding: 0;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+#send-btn i, #mic-btn i {
+    font-size: 20px;
+}
+
+#mic-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+}
+#mic-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+#mic-btn.recording {
+    background: var(--danger);
+    color: white;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Typing Indicator */
+.typing-indicator {
+    display: flex;
+    gap: 5px;
+    padding: 5px 10px;
+}
+.dot {
+    width: 8px; height: 8px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    animation: typing 1.4s infinite ease-in-out both;
+}
+.dot:nth-child(1) { animation-delay: -0.32s; }
+.dot:nth-child(2) { animation-delay: -0.16s; }
+@keyframes typing {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+}
+
+/* Streaming Text Cursor Effect */
+.streaming-text::after {
+    content: '▊';
+    color: var(--primary);
+    animation: blink-cursor 0.8s step-end infinite;
+    font-weight: 300;
+    margin-left: 2px;
+}
+
+@keyframes blink-cursor {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* Response Metadata (after streaming) */
+.response-metadata {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    animation: fadeInUp 0.4s ease-out;
+}
+
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Decision badge variants */
+.decision-DENIED { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+.decision-CONDITIONAL { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+.decision-INFO { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
+

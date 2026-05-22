@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المساعد الأكاديمي</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Phosphor Icons for beautiful scalable icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body>
+    <div class="background-effects">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- LOGIN SCREEN -->
+        <section id="login-screen" class="screen active">
+            <div class="glass-panel login-panel">
+                <div class="brand">
+                    <i class="ph-fill ph-student"></i>
+                    <h1>المساعد الأكاديمي</h1>
+                    <p>مرشدك الجامعي الذكي</p>
+                </div>
+                <form id="login-form">
+                    <div class="input-group">
+                        <i class="ph ph-user"></i>
+                        <input type="text" id="username" placeholder="اسم المستخدم" required autocomplete="username">
+                    </div>
+                    <div class="input-group">
+                        <i class="ph ph-lock-key"></i>
+                        <input type="password" id="password" placeholder="كلمة المرور" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" id="login-btn">
+                        <span>تسجيل الدخول</span>
+                        <i class="ph-bold ph-arrow-left"></i>
+                    </button>
+                    <div id="login-error" class="error-text"></div>
+                </form>
+            </div>
+        </section>
+
+        <!-- CHAT SCREEN -->
+        <section id="chat-screen" class="screen">
+            <div class="glass-panel chat-panel">
+                <header class="chat-header">
+                    <div class="header-info">
+                        <div class="avatar">
+                            <i class="ph-fill ph-robot"></i>
+                        </div>
+                        <div class="status">
+                            <h2>المساعد</h2>
+                            <span class="online-indicator">متصل</span>
+                        </div>
+                    </div>
+                    <button type="button" id="voice-toggle-btn" title="تفعيل/تعطيل الصوت" class="voice-on">
+                        <i class="ph-fill ph-speaker-high"></i>
+                    </button>
+                    <button type="button" id="logout-btn" title="تسجيل الخروج">
+                        <i class="ph ph-sign-out"></i>
+                    </button>
+                </header>
+
+                <div class="chat-messages" id="chat-messages">
+                    <div class="message assistant welcome">
+                        <div class="bubble">
+                            <p>أهلاً بك! أنا مساعدك الأكاديمي الذكي. كيف يمكنني مساعدتك اليوم؟</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-container">
+                    <form id="chat-form">
+                        <button type="button" id="mic-btn" aria-label="إدخال صوتي">
+                            <i class="ph-fill ph-microphone"></i>
+                        </button>
+                        <input type="text" id="question-input" placeholder="اسأل عن اللوائح، المعدل، التدريب..." required autocomplete="off">
+                        <button type="submit" id="send-btn" aria-label="إرسال">
+                            <i class="ph-fill ph-paper-plane-left"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
