@@ -29,6 +29,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 import httpx
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.citation.generator import extract_citations
@@ -42,6 +43,34 @@ from app.sql_agent.agent import execute_sql_query, extract_course_code
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Module-level fallback client (used when app.state is unavailable, e.g. in tests)
+_fallback_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """
+    Return the shared httpx.AsyncClient stored on app.state.
+    Falls back to a lazily-created module-level client when the
+    FastAPI application context is not available (unit tests, CLI).
+    """
+    try:
+        # Import here to avoid circular imports at module load time
+        from app.main import app  # noqa: PLC0415
+        client = getattr(app.state, "http_client", None)
+        if client is not None:
+            return client
+    except Exception:
+        pass
+
+    # Fallback: create a reusable module-level client
+    global _fallback_http_client
+    if _fallback_http_client is None or _fallback_http_client.is_closed:
+        _fallback_http_client = httpx.AsyncClient(
+            timeout=float(settings.OLLAMA_TIMEOUT),
+        )
+    return _fallback_http_client
+
 
 
 async def process_query(
@@ -332,25 +361,24 @@ async def _handle_hybrid_query(
 async def _call_ollama(prompt: str) -> str:
     """
     Send a prompt to the Ollama local LLM and return the full response.
-    Used by the non-streaming /ask endpoint for backward compatibility.
-
+    Uses the shared httpx.AsyncClient from app.state for connection reuse.
     Falls back to a basic response if Ollama is unavailable.
     """
     try:
-        async with httpx.AsyncClient(timeout=float(settings.OLLAMA_TIMEOUT)) as client:
-            response = await client.post(
-                f"{settings.OLLAMA_URL}/api/generate",
-                json={
-                    "model": settings.OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,       # Low for factual accuracy
-                        "top_p": 0.9,
-                        "num_predict": 512,       # Shorter, faster responses
-                    },
+        client = _get_http_client()
+        response = await client.post(
+            "/api/generate",
+            json={
+                "model": settings.OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.3,
+                    "top_p": 0.9,
+                    "num_predict": 512,
                 },
-            )
+            },
+        )
 
         if response.status_code == 200:
             return response.json().get("response", "No response generated.")
@@ -369,47 +397,48 @@ async def _call_ollama(prompt: str) -> str:
         return _fallback_response(prompt)
 
 
+
 async def _call_ollama_stream(prompt: str):
     """
     Stream tokens from Ollama as they are generated.
+    Uses the shared httpx.AsyncClient from app.state for connection reuse.
     Yields each token string as it arrives.
-
     Falls back to yielding the full fallback response if Ollama is unavailable.
     """
     try:
-        async with httpx.AsyncClient(timeout=float(settings.OLLAMA_TIMEOUT)) as client:
-            async with client.stream(
-                "POST",
-                f"{settings.OLLAMA_URL}/api/generate",
-                json={
-                    "model": settings.OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": True,
-                    "options": {
-                        "temperature": 0.3,
-                        "top_p": 0.9,
-                        "num_predict": 512,
-                    },
+        client = _get_http_client()
+        async with client.stream(
+            "POST",
+            "/api/generate",
+            json={
+                "model": settings.OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": True,
+                "options": {
+                    "temperature": 0.3,
+                    "top_p": 0.9,
+                    "num_predict": 512,
                 },
-            ) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    logger.error(f"Ollama stream error: {response.status_code} - {error_text[:200]}")
-                    yield _fallback_response(prompt)
-                    return
+            },
+        ) as response:
+            if response.status_code != 200:
+                error_text = await response.aread()
+                logger.error(f"Ollama stream error: {response.status_code} - {error_text[:200]}")
+                yield _fallback_response(prompt)
+                return
 
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        data = json.loads(line)
-                        token = data.get("response", "")
-                        if token:
-                            yield token
-                        if data.get("done", False):
-                            break
-                    except json.JSONDecodeError:
-                        continue
+            async for line in response.aiter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    token = data.get("response", "")
+                    if token:
+                        yield token
+                    if data.get("done", False):
+                        break
+                except json.JSONDecodeError:
+                    continue
 
     except httpx.TimeoutException:
         logger.error("Ollama stream timed out")
@@ -420,6 +449,7 @@ async def _call_ollama_stream(prompt: str):
     except Exception as e:
         logger.error(f"Ollama stream error: {e}", exc_info=True)
         yield _fallback_response(prompt)
+
 
 
 def _fallback_response(prompt: str) -> str:

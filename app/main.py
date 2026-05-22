@@ -13,12 +13,15 @@ The FastAPI application factory with:
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 
@@ -68,11 +71,21 @@ async def lifespan(app: FastAPI):
         logger.error(f"Database initialization failed: {e}")
         logger.warning("Application starting without database — some features may not work")
 
+    # Startup: Create shared httpx client for Ollama (reused across all requests)
+    settings_obj = get_settings()
+    app.state.http_client = httpx.AsyncClient(
+        base_url=settings_obj.OLLAMA_URL,
+        timeout=float(settings_obj.OLLAMA_TIMEOUT),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+    )
+    logger.info(f"Shared HTTP client created for Ollama at {settings_obj.OLLAMA_URL}")
+
     yield
 
     # Shutdown: Close connections
     from app.db.database import close_db
     await close_db()
+    await app.state.http_client.aclose()
     logger.info("Application shutdown complete")
 
 
@@ -120,7 +133,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-from fastapi.staticfiles import StaticFiles
 
 # ============================================================
 # Health Check Endpoint
@@ -138,6 +150,7 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+
 # ============================================================
 # Include API Routes
 # ============================================================
@@ -148,14 +161,5 @@ app.include_router(api_router)
 # ============================================================
 # Mount Frontend Static Files
 # ============================================================
-import os
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
-
-
-# ============================================================
-# Include API Routes
-# ============================================================
-from app.api.router import api_router  # noqa: E402
-
-app.include_router(api_router)

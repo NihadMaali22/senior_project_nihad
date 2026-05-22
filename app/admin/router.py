@@ -8,6 +8,7 @@ student management, and data seeding.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -69,8 +70,8 @@ async def get_system_stats(
     )
     active_warnings = warnings_count.scalar() or 0
 
-    # Count documents in Qdrant
-    total_documents = get_document_count()
+    # Count documents in Qdrant (sync call — run in thread pool to avoid blocking)
+    total_documents = await asyncio.to_thread(get_document_count)
 
     return SystemStats(
         total_students=total_students,
@@ -170,7 +171,7 @@ async def trigger_ingestion(
     """Trigger ingestion of all regulation documents."""
     try:
         from app.rag.ingestion import ingest_documents
-        result = ingest_documents()
+        result = await ingest_documents()
         return result
     except Exception as e:
         logger.error(f"Ingestion trigger failed: {e}", exc_info=True)

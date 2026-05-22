@@ -129,12 +129,16 @@ def build_ingestion_pipeline() -> Pipeline:
     return pipeline
 
 
-def ingest_documents(
+async def ingest_documents(
     directory: Optional[str] = None,
     documents: Optional[List[Document]] = None,
 ) -> dict:
     """
     Run the ingestion pipeline on regulation documents.
+
+    This is an async function. The heavy Haystack pipeline.run() call is
+    offloaded to a thread pool via asyncio.to_thread() so it does not block
+    the FastAPI event loop during ingestion.
 
     Args:
         directory: Path to regulation files directory.
@@ -165,8 +169,11 @@ def ingest_documents(
 
     pipeline = build_ingestion_pipeline()
 
-    # Run the pipeline
-    result = pipeline.run({"cleaner": {"documents": documents}})
+    # Run the CPU/IO-heavy pipeline in a thread pool to avoid blocking the event loop
+    def _run_pipeline() -> dict:
+        return pipeline.run({"cleaner": {"documents": documents}})
+
+    result = await asyncio.to_thread(_run_pipeline)
 
     # Count written documents
     written = result.get("writer", {}).get("documents_written", 0)
@@ -180,7 +187,8 @@ def ingest_documents(
     }
 
 
-def ingest_text(
+
+async def ingest_text(
     title: str,
     content: str,
     source: str = "manual",
@@ -188,6 +196,8 @@ def ingest_text(
 ) -> dict:
     """
     Ingest a single text document into the vector store.
+
+    This is an async function that delegates to the async ingest_documents().
 
     Args:
         title: Document title.
@@ -207,7 +217,8 @@ def ingest_text(
         meta.update(metadata)
 
     doc = Document(content=content, meta=meta)
-    return ingest_documents(documents=[doc])
+    return await ingest_documents(documents=[doc])
+
 
 
 # ============================================================

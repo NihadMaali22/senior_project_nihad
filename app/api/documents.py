@@ -38,7 +38,7 @@ async def ingest_all_documents(
     data/regulations/ directory. Requires admin role.
     """
     try:
-        result = ingest_documents()
+        result = await ingest_documents()
         return DocumentIngestResponse(**result)
     except Exception as e:
         logger.error(f"Ingestion failed: {e}", exc_info=True)
@@ -69,7 +69,7 @@ async def ingest_text_document(
         )
 
     try:
-        result = ingest_text(
+        result = await ingest_text(
             title=request.title,
             content=request.content,
             source=request.source,
