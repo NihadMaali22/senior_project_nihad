@@ -44,34 +44,33 @@ async def get_system_stats(
     _: TokenPayload = Depends(require_role("admin")),
 ):
     """Get system-wide statistics for the admin dashboard."""
-    # Count students
-    students_count = await session.execute(select(func.count()).select_from(Student))
-    total_students = students_count.scalar() or 0
-
-    # Count courses
-    courses_count = await session.execute(select(func.count()).select_from(Course))
-    total_courses = courses_count.scalar() or 0
-
-    # Count enrollments
-    enrollments_count = await session.execute(select(func.count()).select_from(Enrollment))
-    total_enrollments = enrollments_count.scalar() or 0
-
-    # Count conversations
-    conversations_count = await session.execute(
-        select(func.count(func.distinct(ConversationHistory.session_id)))
+    # Run all database count queries and the Qdrant document count concurrently
+    (
+        students_res,
+        courses_res,
+        enrollments_res,
+        conversations_res,
+        warnings_res,
+        total_documents,
+    ) = await asyncio.gather(
+        session.execute(select(func.count()).select_from(Student)),
+        session.execute(select(func.count()).select_from(Course)),
+        session.execute(select(func.count()).select_from(Enrollment)),
+        session.execute(select(func.count(func.distinct(ConversationHistory.session_id)))),
+        session.execute(
+            select(func.count())
+            .select_from(Warning)
+            .where(Warning.is_resolved == False)  # noqa: E712
+        ),
+        asyncio.to_thread(get_document_count),
     )
-    total_conversations = conversations_count.scalar() or 0
 
-    # Count active warnings
-    warnings_count = await session.execute(
-        select(func.count())
-        .select_from(Warning)
-        .where(Warning.is_resolved == False)  # noqa: E712
-    )
-    active_warnings = warnings_count.scalar() or 0
+    total_students = students_res.scalar() or 0
+    total_courses = courses_res.scalar() or 0
+    total_enrollments = enrollments_res.scalar() or 0
+    total_conversations = conversations_res.scalar() or 0
+    active_warnings = warnings_res.scalar() or 0
 
-    # Count documents in Qdrant (sync call — run in thread pool to avoid blocking)
-    total_documents = await asyncio.to_thread(get_document_count)
 
     return SystemStats(
         total_students=total_students,

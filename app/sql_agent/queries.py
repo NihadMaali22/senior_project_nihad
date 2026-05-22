@@ -262,19 +262,25 @@ async def check_prerequisites_met(
     results = []
     all_met = True
 
-    for prereq, prereq_course in prerequisites:
-        # Check if student completed this prerequisite
-        enrollment_result = await session.execute(
-            select(Enrollment)
-            .where(
-                Enrollment.student_id == student_id,
-                Enrollment.course_id == prereq.prerequisite_id,
-                Enrollment.status == "completed",
-            )
-            .order_by(Enrollment.grade_points.desc())
-            .limit(1)
+    # Fetch all completed enrollments for these prerequisites in one query
+    prereq_ids = [prereq.prerequisite_id for prereq, _ in prerequisites]
+    enrollment_result = await session.execute(
+        select(Enrollment)
+        .where(
+            Enrollment.student_id == student_id,
+            Enrollment.course_id.in_(prereq_ids),
+            Enrollment.status == "completed",
         )
-        enrollment = enrollment_result.scalar_one_or_none()
+    )
+    
+    # Map each prerequisite to its highest grade enrollment
+    completed_map = {}
+    for e in enrollment_result.scalars().all():
+        if e.course_id not in completed_map or (e.grade_points or 0) > (completed_map[e.course_id].grade_points or 0):
+            completed_map[e.course_id] = e
+
+    for prereq, prereq_course in prerequisites:
+        enrollment = completed_map.get(prereq.prerequisite_id)
 
         if enrollment is None:
             met = False
