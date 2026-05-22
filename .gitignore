@@ -12,10 +12,11 @@ build/
 *.whl
 
 # Virtual Environment
-
+venv/
+.venv/
+env/
 
 # Environment variables
-.env
 
 # IDE
 .vscode/
