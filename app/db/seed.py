@@ -601,13 +601,12 @@ async def seed_warnings(session: AsyncSession, student_ids: dict[str, int]) -> N
 
 async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None:
     """Create default user accounts for authentication."""
-    from passlib.context import CryptContext
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    from app.auth.service import hash_password
 
     users = [
         User(
             username="admin",
-            hashed_password=pwd_context.hash("admin123"),
+            hashed_password=hash_password("admin123"),
             email="admin@university.edu",
             full_name="System Administrator",
             role="admin",
@@ -615,7 +614,7 @@ async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None
         ),
         User(
             username="khalid",
-            hashed_password=pwd_context.hash("student123"),
+            hashed_password=hash_password("student123"),
             email="khalid.mansoor@students.edu",
             full_name="Khalid Al-Mansoor",
             role="student",
@@ -624,7 +623,7 @@ async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None
         ),
         User(
             username="noor",
-            hashed_password=pwd_context.hash("student123"),
+            hashed_password=hash_password("student123"),
             email="noor.abdullah@students.edu",
             full_name="Noor Abdullah",
             role="student",
@@ -633,7 +632,7 @@ async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None
         ),
         User(
             username="tariq",
-            hashed_password=pwd_context.hash("student123"),
+            hashed_password=hash_password("student123"),
             email="tariq.hassan@students.edu",
             full_name="Tariq Hassan",
             role="student",
@@ -642,7 +641,7 @@ async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None
         ),
         User(
             username="hassan",
-            hashed_password=pwd_context.hash("student123"),
+            hashed_password=hash_password("student123"),
             email="hassan.darwish@students.edu",
             full_name="Hassan Darwish",
             role="student",
@@ -651,7 +650,7 @@ async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None
         ),
         User(
             username="lina",
-            hashed_password=pwd_context.hash("student123"),
+            hashed_password=hash_password("student123"),
             email="lina.saeed@students.edu",
             full_name="Lina Saeed",
             role="student",
@@ -660,7 +659,7 @@ async def seed_users(session: AsyncSession, student_ids: dict[str, int]) -> None
         ),
         User(
             username="advisor",
-            hashed_password=pwd_context.hash("advisor123"),
+            hashed_password=hash_password("advisor123"),
             email="ahmad.rashid@university.edu",
             full_name="Dr. Ahmad Al-Rashid",
             role="advisor",

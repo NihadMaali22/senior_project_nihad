@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     # ---- TTS ----
     MUNSIT_API_KEY: str = ""
 
+    # ---- Data Directories ----
+    REGULATIONS_DATA_DIR: str = "data/regulations"   # hand-written policy files
+    KNOWLEDGE_DATA_DIR: str = "data/knowledge"        # crawled from aaup.edu/ar
+
+    # ---- Web Crawler (Knowledge Pipeline) ----
+    AAUP_BASE_URL: str = "https://www.aaup.edu"
+    CRAWLER_DELAY_SECONDS: float = 1.0               # polite delay between requests
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from JSON string to list."""
