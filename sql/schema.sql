@@ -189,3 +189,47 @@ CREATE INDEX IF NOT EXISTS idx_warnings_student ON warnings(student_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_session ON conversation_history(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_user ON conversation_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+-- ============================================================
+-- 12. ROBOT SESSIONS (Temporary QR Tokens)
+-- ============================================================
+-- A short-lived token the robot generates and encodes in a QR
+-- code.  The student scans the QR → frontend calls
+-- POST /api/v1/robot/verify-session → receives a normal JWT.
+-- Each token is single-use and expires after a configurable TTL
+-- (default 5 minutes).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS robot_sessions (
+    id              SERIAL PRIMARY KEY,
+
+    -- Cryptographically-secure URL-safe token (43 chars from secrets.token_urlsafe(32))
+    token           VARCHAR(64) NOT NULL UNIQUE,
+
+    -- Student the robot is currently serving (set at creation time)
+    student_id      INTEGER REFERENCES students(id) ON DELETE SET NULL,
+
+    -- User account resolved and stamped after successful verification
+    user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+
+    -- Lifecycle flags
+    is_used         BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+    used_at         TIMESTAMP WITH TIME ZONE,           -- NULL until verified
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================
+-- INDEXES for robot_sessions
+-- ============================================================
+-- Fast token lookup (used on every verify call)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_robot_sessions_token
+    ON robot_sessions(token);
+
+-- Allows efficient cleanup of expired tokens
+CREATE INDEX IF NOT EXISTS idx_robot_sessions_expires
+    ON robot_sessions(expires_at);
+
+-- Optional: look up all sessions for a specific student
+CREATE INDEX IF NOT EXISTS idx_robot_sessions_student
+    ON robot_sessions(student_id);
+

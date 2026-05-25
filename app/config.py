@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # ---- TTS ----
     MUNSIT_API_KEY: str = ""
 
+    # ---- Robot Session ----
+    FRONTEND_URL: str = "http://localhost:8080"
+    ROBOT_SESSION_TTL_SECONDS: int = 300  # Default: 5 minutes
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from JSON string to list."""
