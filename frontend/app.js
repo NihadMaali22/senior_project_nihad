@@ -1,158 +1,331 @@
-const API_BASE = "http://localhost:8000/api/v1";
+// ============================================================
+// Academic Assistant — Frontend App
+// ============================================================
 
-// DOM Elements
-const loginScreen = document.getElementById('login-screen');
-const chatScreen = document.getElementById('chat-screen');
-const loginForm = document.getElementById('login-form');
-const loginError = document.getElementById('login-error');
-const logoutBtn = document.getElementById('logout-btn');
-const chatForm = document.getElementById('chat-form');
-const questionInput = document.getElementById('question-input');
-const chatMessages = document.getElementById('chat-messages');
-const micBtn = document.getElementById('mic-btn');
-const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+const API_BASE = window.API_BASE || "http://localhost:8000/api/v1";
 
-// State
-let jwtToken = localStorage.getItem('academic_token');
+// ── i18n strings ──────────────────────────────────────────────
+const STRINGS = {
+    ar: {
+        brandTitle:      "المساعد الأكاديمي",
+        brandSub:        "مرشدك الجامعي الذكي",
+        usernamePH:      "اسم المستخدم",
+        passwordPH:      "كلمة المرور",
+        loginBtn:        "تسجيل الدخول",
+        headerTitle:     "المساعد الأكاديمي",
+        onlineStatus:    "متصل",
+        chatPH:          "اسأل عن اللوائح، المعدل، التدريب...",
+        langLabel:       "EN",
+        welcome:         "أهلاً بك! أنا مساعدك الأكاديمي الذكي.\nيمكنك الكتابة أو الضغط على الميكروفون للتحدث باللغة العربية أو الإنجليزية. 🎓",
+        reasoning:       "الأسباب",
+        sources:         "المصادر",
+        confidence:      "الثقة",
+        credits:         "ساعات",
+        cleared:         "تم مسح المحادثة",
+        noSpeech:        "لم أسمع شيئاً، حاول مرة أخرى",
+        listening:       "أستمع...",
+        errorLogin:      "فشل تسجيل الدخول",
+        errorServer:     "خطأ في الاتصال بالخادم",
+        decisionLabels: {
+            APPROVED:    "✅ موافق",
+            DENIED:      "❌ مرفوض",
+            CONDITIONAL: "⚠️ مشروط",
+            PENDING:     "🕐 قيد المراجعة",
+            INFO:        "ℹ️ معلومات",
+        },
+    },
+    en: {
+        brandTitle:      "Academic Assistant",
+        brandSub:        "Your smart university guide",
+        usernamePH:      "Username",
+        passwordPH:      "Password",
+        loginBtn:        "Sign In",
+        headerTitle:     "Academic Assistant",
+        onlineStatus:    "Online",
+        chatPH:          "Ask about GPA, graduation, registration policy...",
+        langLabel:       "عربي",
+        welcome:         "Welcome! I'm your Academic Assistant.\nType or tap the microphone to speak in Arabic or English. 🎓",
+        reasoning:       "Reasoning",
+        sources:         "Sources",
+        confidence:      "Confidence",
+        credits:         "Credits",
+        cleared:         "Chat cleared",
+        noSpeech:        "Didn't catch that, please try again",
+        listening:       "Listening...",
+        errorLogin:      "Login failed",
+        errorServer:     "Error communicating with the server",
+        decisionLabels: {
+            APPROVED:    "✅ Approved",
+            DENIED:      "❌ Denied",
+            CONDITIONAL: "⚠️ Conditional",
+            PENDING:     "🕐 Pending",
+            INFO:        "ℹ️ Info",
+        },
+    },
+};
+
+// ── State ─────────────────────────────────────────────────────
+let jwtToken      = localStorage.getItem('academic_token');
+let currentLang   = localStorage.getItem('academic_lang') || 'ar';
+let currentUser   = JSON.parse(localStorage.getItem('academic_user') || 'null');
 let isVoiceEnabled = true;
+let sessionId     = null;
+let currentAudio  = null;
+let isRecording   = false;
 
-// ----------------------------------------------------
-// Web Speech API Setup
-// ----------------------------------------------------
+// ── DOM refs ──────────────────────────────────────────────────
+const loginScreen    = document.getElementById('login-screen');
+const chatScreen     = document.getElementById('chat-screen');
+const loginForm      = document.getElementById('login-form');
+const loginError     = document.getElementById('login-error');
+const logoutBtn      = document.getElementById('logout-btn');
+const chatForm       = document.getElementById('chat-form');
+const questionInput  = document.getElementById('question-input');
+const chatMessages   = document.getElementById('chat-messages');
+const micBtn         = document.getElementById('mic-btn');
+const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+const clearBtn       = document.getElementById('clear-btn');
+const langToggleBtn  = document.getElementById('lang-toggle-btn');
+const userDisplay    = document.getElementById('user-display');
+const suggestionsEl  = document.getElementById('suggestions');
+const toastEl        = document.getElementById('toast');
+
+// ── Shorthand translator ──────────────────────────────────────
+function t(key) {
+    return STRINGS[currentLang]?.[key] ?? STRINGS.ar[key] ?? key;
+}
+
+// ── Language system ───────────────────────────────────────────
+function setLanguage(lang) {
+    currentLang = lang;
+    localStorage.setItem('academic_lang', lang);
+
+    const html = document.documentElement;
+    html.lang = lang === 'ar' ? 'ar' : 'en';
+    html.dir  = lang === 'ar' ? 'rtl' : 'ltr';
+
+    if (recognition) {
+        recognition.lang = lang === 'ar' ? 'ar-SA' : 'en-US';
+    }
+
+    // Update lang pills on login screen
+    document.getElementById('lang-ar-btn')?.classList.toggle('active', lang === 'ar');
+    document.getElementById('lang-en-btn')?.classList.toggle('active', lang === 'en');
+
+    updateUIText();
+    updateSuggestionChips();
+}
+
+function updateUIText() {
+    const s = STRINGS[currentLang];
+    setText('brand-title',    s.brandTitle);
+    setText('brand-sub',      s.brandSub);
+    setText('login-btn-text', s.loginBtn);
+    setText('header-title',   s.headerTitle);
+    setText('online-status',  s.onlineStatus);
+    setText('lang-label',     s.langLabel);
+    setPlaceholder('username',        s.usernamePH);
+    setPlaceholder('password',        s.passwordPH);
+    setPlaceholder('question-input',  s.chatPH);
+}
+
+function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+}
+function setPlaceholder(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.placeholder = val;
+}
+
+function updateSuggestionChips() {
+    document.querySelectorAll('.suggestion-chip').forEach(chip => {
+        chip.textContent = chip.dataset[currentLang] || chip.dataset.ar;
+    });
+}
+
+// ── Session ───────────────────────────────────────────────────
+function getSessionId() {
+    if (!sessionId) {
+        sessionId = `sess_${currentUser?.user_id ?? 'guest'}_${Date.now()}`;
+    }
+    return sessionId;
+}
+
+// ── Screen management ─────────────────────────────────────────
+function showScreen(screen) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    screen.classList.add('active');
+}
+
+function updateUserDisplay() {
+    if (!currentUser) { userDisplay.style.display = 'none'; return; }
+    const icon = currentUser.role === 'student' ? '🎓'
+               : currentUser.role === 'admin'   ? '⚙️'
+               : currentUser.role === 'advisor' ? '👨‍🏫' : '👤';
+    userDisplay.textContent = `${icon} ${currentUser.username}`;
+    userDisplay.style.display = 'flex';
+}
+
+// ── Toast ─────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, ms = 2500) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+}
+
+// ── Speech Recognition ────────────────────────────────────────
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
-let isRecording = false;
 
 if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.continuous = false;
-    // Set to 'ar-SA' if you want arabic, or 'en-US' for english. 
-    // Usually it defaults to the browser language or we can leave it empty to detect.
-    recognition.lang = 'ar-SA'; 
     recognition.interimResults = false;
+    recognition.lang = currentLang === 'ar' ? 'ar-SA' : 'en-US';
 
     recognition.onstart = () => {
         isRecording = true;
         micBtn.classList.add('recording');
+        micBtn.querySelector('i').className = 'ph-fill ph-microphone-slash';
+        questionInput.placeholder = t('listening');
     };
 
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
+    recognition.onresult = (e) => {
+        const transcript = e.results[0][0].transcript;
         questionInput.value = transcript;
-        // Auto submit
+        stopRecording();
         chatForm.dispatchEvent(new Event('submit'));
     };
 
-    recognition.onerror = (event) => {
-        console.error("Speech recognition error", event.error);
-        isRecording = false;
-        micBtn.classList.remove('recording');
+    recognition.onerror = (e) => {
+        stopRecording();
+        if (e.error === 'no-speech') showToast(t('noSpeech'));
     };
 
-    recognition.onend = () => {
-        isRecording = false;
-        micBtn.classList.remove('recording');
-    };
+    recognition.onend = () => stopRecording();
 } else {
-    micBtn.style.display = 'none'; // Hide if not supported
+    micBtn.style.display = 'none';
 }
 
-// Mic Button Handler
+function stopRecording() {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micBtn.querySelector('i').className = 'ph-fill ph-microphone';
+    questionInput.placeholder = t('chatPH');
+}
+
 micBtn.addEventListener('click', () => {
     if (!recognition) return;
-    if (isRecording) {
-        recognition.stop();
-    } else {
-        recognition.start();
-    }
+    if (isRecording) recognition.stop();
+    else recognition.start();
 });
 
-// Voice Toggle Handler
+// ── Text-to-Speech ────────────────────────────────────────────
 voiceToggleBtn.addEventListener('click', () => {
     isVoiceEnabled = !isVoiceEnabled;
-    if (isVoiceEnabled) {
-        voiceToggleBtn.classList.remove('voice-off');
-        voiceToggleBtn.classList.add('voice-on');
-    } else {
-        voiceToggleBtn.classList.remove('voice-on');
-        voiceToggleBtn.classList.add('voice-off');
-        window.speechSynthesis.cancel(); // Stop current speech
-    }
+    voiceToggleBtn.classList.toggle('voice-off', !isVoiceEnabled);
+    voiceToggleBtn.querySelector('i').className = isVoiceEnabled
+        ? 'ph-fill ph-speaker-high'
+        : 'ph-fill ph-speaker-slash';
+    if (!isVoiceEnabled) stopSpeech();
 });
 
-// Audio State
-let currentAudio = null;
+function stopSpeech() {
+    window.speechSynthesis?.cancel();
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+}
 
-// TTS Function (Using Munsit API)
 async function speak(text) {
-    if (!isVoiceEnabled) return;
-    
-    // Stop currently playing audio
-    if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
+    if (!isVoiceEnabled || !text) return;
+    stopSpeech();
+    // Trim to 500 chars and strip markdown symbols for cleaner speech
+    const clean = text.replace(/[#*`_\[\]>]/g, '').slice(0, 500);
+
+    if (currentLang === 'ar') {
+        // Try Munsit (Arabic TTS API) first, fall back to browser
+        const ok = await speakViaMunsit(clean);
+        if (!ok) speakViaBrowser(clean, 'ar-SA');
+    } else {
+        speakViaBrowser(clean, 'en-US');
     }
-    
-    // Remove markdown or special characters to make speech cleaner
-    const cleanText = text.replace(/[#*`_\[\]]/g, '');
-    
+}
+
+async function speakViaMunsit(text) {
     try {
-        const response = await fetch(`${API_BASE}/tts`, {
+        const res = await fetch(`${API_BASE}/tts`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${jwtToken}`
+                'Authorization': `Bearer ${jwtToken}`,
             },
-            body: JSON.stringify({
-                text: cleanText,
-                voice_id: "ar-najdi-male-2",
-                speed: 1.0
-            })
+            body: JSON.stringify({ text, voice_id: 'ar-najdi-male-2', speed: 1.0 }),
         });
-
-        if (!response.ok) {
-            console.error("TTS Failed:", await response.text());
-            return;
-        }
-
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        
-        currentAudio = new Audio(audioUrl);
+        if (!res.ok) return false;
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        currentAudio = new Audio(url);
         currentAudio.play();
-        
-        currentAudio.onended = () => {
-            URL.revokeObjectURL(audioUrl);
-            currentAudio = null;
-        };
-
-    } catch (err) {
-        console.error("TTS Error:", err);
+        currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
+        return true;
+    } catch {
+        return false;
     }
 }
-// ----------------------------------------------------
 
-// Initialize
-if (jwtToken) {
-    showScreen(chatScreen);
-} else {
-    showScreen(loginScreen);
+function speakViaBrowser(text, lang) {
+    if (!window.speechSynthesis) return;
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = lang;
+    utt.rate = 0.9;
+    window.speechSynthesis.speak(utt);
 }
 
-// Utility: Switch Screens
-function showScreen(screenElement) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    screenElement.classList.add('active');
+// ── Language toggle button ────────────────────────────────────
+langToggleBtn.addEventListener('click', () => {
+    setLanguage(currentLang === 'ar' ? 'en' : 'ar');
+});
+
+// ── Suggestion chips ──────────────────────────────────────────
+document.querySelectorAll('.suggestion-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        questionInput.value = chip.dataset[currentLang] || chip.dataset.ar;
+        hideSuggestions();
+        chatForm.dispatchEvent(new Event('submit'));
+    });
+});
+
+function showSuggestions() { suggestionsEl.style.display = 'flex'; }
+function hideSuggestions()  { suggestionsEl.style.display = 'none'; }
+
+// ── Clear chat ────────────────────────────────────────────────
+clearBtn.addEventListener('click', () => {
+    chatMessages.innerHTML = '';
+    sessionId = null;
+    appendWelcomeMessage();
+    showSuggestions();
+    showToast(t('cleared'));
+});
+
+// ── Welcome message ───────────────────────────────────────────
+function appendWelcomeMessage() {
+    const html = t('welcome')
+        .split('\n')
+        .map(l => `<p>${l}</p>`)
+        .join('');
+    appendMessage('assistant welcome', html);
 }
 
-// Utility: Append Message to Chat
+// ── Message helpers ───────────────────────────────────────────
 function appendMessage(type, htmlContent) {
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `message ${type}`;
-    msgDiv.innerHTML = `<div class="bubble">${htmlContent}</div>`;
-    chatMessages.appendChild(msgDiv);
+    const div = document.createElement('div');
+    div.className = `message ${type}`;
+    div.innerHTML = `<div class="bubble">${htmlContent}</div>`;
+    chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    return msgDiv;
+    return div;
 }
 
 function appendTypingIndicator() {
@@ -161,267 +334,286 @@ function appendTypingIndicator() {
             <div class="dot"></div>
             <div class="dot"></div>
             <div class="dot"></div>
-        </div>
-    `);
+        </div>`);
 }
 
-// Create a streaming message bubble that we can append text to
 function appendStreamingMessage() {
-    const msgDiv = document.createElement('div');
-    msgDiv.className = 'message assistant';
-    
+    const div    = document.createElement('div');
+    div.className = 'message assistant';
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    
-    const textContainer = document.createElement('p');
-    textContainer.className = 'streaming-text';
-    
-    bubble.appendChild(textContainer);
-    msgDiv.appendChild(bubble);
-    chatMessages.appendChild(msgDiv);
+    const text   = document.createElement('p');
+    text.className = 'streaming-text';
+    bubble.appendChild(text);
+    div.appendChild(bubble);
+    chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    
-    return { msgDiv, bubble, textContainer };
+    return { div, bubble, text };
 }
 
-// Format API Response (for metadata after streaming)
+// ── Response metadata renderer ────────────────────────────────
 function formatMetadataHtml(data) {
     let html = '';
 
+    // Student data card
+    if (data.student_data) {
+        const sd = data.student_data;
+        html += `<div class="student-data-card">`;
+        if (sd.full_name)      html += `<span>👤 ${escHtml(sd.full_name)}</span>`;
+        if (sd.gpa != null)    html += `<span>📊 GPA <strong>${sd.gpa.toFixed(2)}</strong></span>`;
+        if (sd.total_credits != null) html += `<span>📚 ${t('credits')} <strong>${sd.total_credits}</strong></span>`;
+        html += `</div>`;
+    }
+
+    // Decision badge
     if (data.decision && data.decision !== 'INFO') {
-        html += `<div class="decision-badge decision-${data.decision}">${data.decision}</div>`;
+        const label = t('decisionLabels')[data.decision] || data.decision;
+        html += `<div class="decision-badge decision-${data.decision}">${label}</div>`;
     }
 
-    if (data.reasoning && data.reasoning.length > 0) {
-        html += `<h3>Reasoning</h3><ul>`;
-        data.reasoning.forEach(r => {
-            html += `<li>${r}</li>`;
-        });
-        html += `</ul>`;
+    // Reasoning (collapsible, open by default)
+    if (data.reasoning?.length) {
+        html += `<details class="collapsible" open>
+            <summary>${t('reasoning')}</summary><ul>`;
+        data.reasoning.forEach(r => { html += `<li>${escHtml(r)}</li>`; });
+        html += `</ul></details>`;
     }
 
-    if (data.citations && data.citations.length > 0) {
-        html += `<div class="citations"><strong>Sources:</strong>`;
+    // Citations (collapsible, closed by default)
+    if (data.citations?.length) {
+        html += `<details class="collapsible">
+            <summary>${t('sources')} (${data.citations.length})</summary>`;
         data.citations.forEach(c => {
             html += `<div class="citation-box">
-                <em>${c.source} (${c.section || ''})</em><br>
-                ${c.text}
+                <strong>${escHtml(c.source || '')}</strong>
+                ${c.section ? `<em> — ${escHtml(c.section)}</em>` : ''}
+                <p>${escHtml(c.text || '')}</p>
             </div>`;
         });
-        html += `</div>`;
+        html += `</details>`;
+    }
+
+    // Confidence bar
+    if (data.confidence != null) {
+        const pct = Math.round(data.confidence * 100);
+        html += `<div class="confidence-row">
+            <span class="confidence-label">${t('confidence')}: ${pct}%</span>
+            <div class="confidence-track">
+                <div class="confidence-fill" style="width:${pct}%"></div>
+            </div>
+        </div>`;
     }
 
     return html;
 }
 
-// Format full response (non-streaming fallback)
-function formatAssistantResponse(data) {
-    let html = `<p>${data.answer}</p>`;
-
-    if (data.decision) {
-        html += `<div class="decision-badge decision-${data.decision}">${data.decision}</div>`;
-    }
-
-    if (data.reasoning && data.reasoning.length > 0) {
-        html += `<h3>Reasoning</h3><ul>`;
-        data.reasoning.forEach(r => {
-            html += `<li>${r}</li>`;
-        });
-        html += `</ul>`;
-    }
-
-    if (data.citations && data.citations.length > 0) {
-        html += `<div class="citations"><strong>Sources:</strong>`;
-        data.citations.forEach(c => {
-            html += `<div class="citation-box">
-                <em>${c.source} (${c.section})</em><br>
-                ${c.text}
-            </div>`;
-        });
-        html += `</div>`;
-    }
-
-    return html;
-}
-
-// Handle Login
-loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    const btn = document.getElementById('login-btn');
-    
-    btn.disabled = true;
-    btn.innerHTML = '<span>Signing In...</span> <i class="ph ph-spinner ph-spin"></i>';
-    loginError.innerText = '';
-
-    try {
-        const res = await fetch(`${API_BASE}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-            throw new Error(data.detail || "Login failed");
-        }
-
-        jwtToken = data.access_token;
-        localStorage.setItem('academic_token', jwtToken);
-        showScreen(chatScreen);
-        
-        // Clear old chat except welcome
-        Array.from(chatMessages.children).forEach((child, index) => {
-            if(index > 0) chatMessages.removeChild(child);
-        });
-        
-    } catch (err) {
-        loginError.innerText = err.message;
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span>Sign In</span> <i class="ph-bold ph-arrow-right"></i>';
-    }
-});
-
-// Handle Logout
-logoutBtn.addEventListener('click', () => {
-    localStorage.removeItem('academic_token');
-    jwtToken = null;
-    showScreen(loginScreen);
-    document.getElementById('password').value = '';
-});
-
-// ============================================================
-// SSE Streaming Chat Handler
-// ============================================================
-
-// Parse SSE text into events
+// ── SSE stream parser ─────────────────────────────────────────
 function parseSSE(text) {
     const events = [];
-    const lines = text.split('\n');
-    let currentEvent = {};
-    
-    for (const line of lines) {
-        if (line.startsWith('event: ')) {
-            currentEvent.event = line.slice(7).trim();
-        } else if (line.startsWith('data: ')) {
-            currentEvent.data = line.slice(6);
-        } else if (line === '' && currentEvent.event) {
-            events.push({ ...currentEvent });
-            currentEvent = {};
-        }
+    let cur = {};
+    for (const line of text.split('\n')) {
+        if (line.startsWith('event: '))      cur.event = line.slice(7).trim();
+        else if (line.startsWith('data: '))  cur.data  = line.slice(6);
+        else if (line === '' && cur.event)   { events.push({ ...cur }); cur = {}; }
     }
-    
     return events;
 }
 
-// Handle Chat Submit — Streaming
+// ── Login ─────────────────────────────────────────────────────
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const btn      = document.getElementById('login-btn');
+
+    btn.disabled = true;
+    btn.innerHTML = `<i class="ph ph-circle-notch spin"></i>`;
+    loginError.textContent = '';
+
+    try {
+        const res  = await fetch(`${API_BASE}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || t('errorLogin'));
+
+        jwtToken = data.access_token;
+        localStorage.setItem('academic_token', jwtToken);
+
+        currentUser = {
+            username:   data.username,
+            role:       data.role,
+            student_id: data.student_id,
+            user_id:    data.user_id,
+        };
+        localStorage.setItem('academic_user', JSON.stringify(currentUser));
+
+        sessionId = null;
+        chatMessages.innerHTML = '';
+        appendWelcomeMessage();
+        showSuggestions();
+        updateUserDisplay();
+        showScreen(chatScreen);
+
+    } catch (err) {
+        loginError.textContent = err.message;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<span id="login-btn-text">${t('loginBtn')}</span><i class="ph-bold ph-sign-in"></i>`;
+    }
+});
+
+// ── Logout ────────────────────────────────────────────────────
+logoutBtn.addEventListener('click', () => {
+    stopSpeech();
+    localStorage.removeItem('academic_token');
+    localStorage.removeItem('academic_user');
+    jwtToken = null; currentUser = null; sessionId = null;
+    userDisplay.style.display = 'none';
+    document.getElementById('password').value = '';
+    showScreen(loginScreen);
+});
+
+// ── Chat submit — streaming with non-streaming fallback ───────
 chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const question = questionInput.value.trim();
     if (!question) return;
 
-    // Show User Message
-    appendMessage('user', `<p>${question}</p>`);
+    hideSuggestions();
+    appendMessage('user', `<p>${escHtml(question)}</p>`);
     questionInput.value = '';
-    
-    // Show Typing Indicator
+
     const typingMsg = appendTypingIndicator();
 
     try {
-        const res = await fetch(`${API_BASE}/ask/stream`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${jwtToken}`
-            },
-            body: JSON.stringify({ question })
-        });
-
-        if (res.status === 401) {
-            logoutBtn.click();
-            return;
+        await sendStreaming(question, typingMsg);
+    } catch {
+        // Streaming failed — try regular endpoint
+        try {
+            await sendRegular(question, typingMsg);
+        } catch (err) {
+            if (typingMsg.parentNode) typingMsg.remove();
+            appendMessage('assistant',
+                `<p class="error-msg"><i class="ph-fill ph-warning-circle"></i> ${err.message}</p>`);
         }
-
-        if (!res.ok) {
-            const errorData = await res.json().catch(() => ({ detail: 'Server error' }));
-            throw new Error(errorData.detail || "Error communicating with the assistant");
-        }
-
-        // Remove typing indicator and create streaming bubble
-        chatMessages.removeChild(typingMsg);
-        const { msgDiv, bubble, textContainer } = appendStreamingMessage();
-
-        // Read the SSE stream
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let fullAnswer = '';
-        let metadata = null;
-        let buffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            
-            // Process complete SSE events from buffer
-            const events = parseSSE(buffer);
-            
-            // Keep any incomplete event data in the buffer
-            const lastDoubleNewline = buffer.lastIndexOf('\n\n');
-            if (lastDoubleNewline !== -1) {
-                buffer = buffer.slice(lastDoubleNewline + 2);
-            }
-
-            for (const sseEvent of events) {
-                if (sseEvent.event === 'token' && sseEvent.data) {
-                    try {
-                        const tokenData = JSON.parse(sseEvent.data);
-                        fullAnswer += tokenData.token;
-                        textContainer.textContent = fullAnswer;
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                    } catch (e) {
-                        // Skip malformed token data
-                    }
-                } else if (sseEvent.event === 'metadata' && sseEvent.data) {
-                    try {
-                        metadata = JSON.parse(sseEvent.data);
-                    } catch (e) {
-                        console.error("Failed to parse metadata:", e);
-                    }
-                } else if (sseEvent.event === 'done') {
-                    // Stream complete
-                }
-            }
-        }
-
-        // Remove the streaming cursor effect
-        textContainer.classList.remove('streaming-text');
-
-        // Append metadata (decision, reasoning, citations) below the answer
-        if (metadata) {
-            const metaHtml = formatMetadataHtml(metadata);
-            if (metaHtml) {
-                const metaDiv = document.createElement('div');
-                metaDiv.className = 'response-metadata';
-                metaDiv.innerHTML = metaHtml;
-                bubble.appendChild(metaDiv);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
-        }
-        
-        // Speak the answer after streaming is complete
-        const answerToSpeak = metadata?.answer || fullAnswer;
-        speak(answerToSpeak);
-
-    } catch (err) {
-        // Remove typing indicator if still present
-        if (typingMsg.parentNode) {
-            chatMessages.removeChild(typingMsg);
-        }
-        appendMessage('assistant', `<p style="color:var(--danger)"><i class="ph-fill ph-warning-circle"></i> ${err.message}</p>`);
     }
 });
+
+async function sendStreaming(question, typingMsg) {
+    const res = await fetch(`${API_BASE}/ask/stream`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${jwtToken}`,
+        },
+        body: JSON.stringify({ question, session_id: getSessionId() }),
+    });
+
+    if (res.status === 401) { logoutBtn.click(); return; }
+    if (!res.ok) throw new Error(t('errorServer'));
+
+    typingMsg.remove();
+    const { bubble, text } = appendStreamingMessage();
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', fullAnswer = '', metadata = null;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = parseSSE(buffer);
+        const cut = buffer.lastIndexOf('\n\n');
+        if (cut !== -1) buffer = buffer.slice(cut + 2);
+
+        for (const ev of events) {
+            if (ev.event === 'token' && ev.data) {
+                try {
+                    fullAnswer += JSON.parse(ev.data).token;
+                    text.textContent = fullAnswer;
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                } catch { /* skip */ }
+            } else if (ev.event === 'metadata' && ev.data) {
+                try { metadata = JSON.parse(ev.data); } catch { /* skip */ }
+            }
+        }
+    }
+
+    text.classList.remove('streaming-text');
+
+    if (metadata) appendMetadata(bubble, metadata);
+    speak(metadata?.answer || fullAnswer);
+}
+
+async function sendRegular(question, typingMsg) {
+    const res = await fetch(`${API_BASE}/ask`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${jwtToken}`,
+        },
+        body: JSON.stringify({ question, session_id: getSessionId() }),
+    });
+
+    if (res.status === 401) { logoutBtn.click(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || t('errorServer'));
+
+    typingMsg.remove();
+    const msgDiv = appendMessage('assistant', `<p>${escHtml(data.answer)}</p>`);
+    appendMetadata(msgDiv.querySelector('.bubble'), data);
+    speak(data.answer);
+}
+
+function appendMetadata(bubble, data) {
+    const html = formatMetadataHtml(data);
+    if (!html) return;
+    const div = document.createElement('div');
+    div.className = 'response-metadata';
+    div.innerHTML = html;
+    bubble.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// ── XSS helper ────────────────────────────────────────────────
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ── Quick-login buttons ──────────────────────────────────────
+document.querySelectorAll('.quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('username').value = btn.dataset.u;
+        document.getElementById('password').value = btn.dataset.p;
+        loginForm.dispatchEvent(new Event('submit'));
+    });
+});
+
+// ── i18n: add quick-label to updateUIText ────────────────────
+// (called inside setLanguage, extends existing updateUIText)
+const _origUpdateUIText = updateUIText;
+function updateUIText() {
+    _origUpdateUIText();
+    setText('quick-label', currentLang === 'ar' ? 'دخول سريع:' : 'Quick login:');
+}
+
+// ── Initialise ────────────────────────────────────────────────
+setLanguage(currentLang);
+
+if (jwtToken && currentUser) {
+    appendWelcomeMessage();
+    showSuggestions();
+    updateUserDisplay();
+    showScreen(chatScreen);
+} else {
+    showScreen(loginScreen);
+}

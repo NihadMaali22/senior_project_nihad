@@ -172,6 +172,8 @@ async def _handle_sql_query(
     )
 
     llm_response = await _call_ollama(prompt)
+    if _ollama_unavailable(llm_response):
+        llm_response = _format_sql_fallback(sql_result)
 
     return AskResponse(
         answer=llm_response,
@@ -213,6 +215,8 @@ async def _handle_rag_query(
     )
 
     llm_response = await _call_ollama(prompt)
+    if _ollama_unavailable(llm_response):
+        llm_response = _format_rag_fallback(documents)
 
     # Extract citations from documents
     citations = extract_citations(documents)
@@ -279,7 +283,12 @@ async def _handle_hybrid_query(
 
         # Check for graduation-related questions
         q_lower = question.lower()
-        if any(kw in q_lower for kw in ["graduat", "degree", "requirements", "hours"]):
+        _grad_kws = [
+            "graduat", "degree", "requirements", "hours",
+            "left", "remain", "missing", "needed", "finish", "complet",
+            "متبقي", "تبقى", "مواد", "كورسات", "ساعات", "تخرج", "إنهاء",
+        ]
+        if any(kw in q_lower for kw in _grad_kws):
             _grad_data = await queries.get_graduation_requirements(session, student_id) or {}
             _student_data["graduation_progress"] = _grad_data
 
@@ -327,6 +336,8 @@ async def _handle_hybrid_query(
 
     # Step 5: Call LLM
     llm_response = await _call_ollama(prompt)
+    if _ollama_unavailable(llm_response):
+        llm_response = _build_no_llm_answer(rule_checks, student_data, documents)
 
     # Step 6: Parse the structured response
     parsed = _parse_decision_response(llm_response)
@@ -450,6 +461,189 @@ async def _call_ollama_stream(prompt: str):
         logger.error(f"Ollama stream error: {e}", exc_info=True)
         yield _fallback_response(prompt)
 
+
+
+def _ollama_unavailable(text: str) -> bool:
+    """Returns True when _call_ollama returned a fallback/error string."""
+    return text.startswith("⚠️")
+
+
+def _build_no_llm_answer(
+    rule_checks: List[Dict[str, Any]],
+    student_data: Dict[str, Any],
+    documents: List,
+) -> str:
+    """Build a professional Arabic advisory response from structured data when the LLM is down."""
+    sd      = student_data or {}
+    name    = sd.get("full_name", "")
+    gpa     = sd.get("gpa")
+    lines: List[str] = []
+
+    # Opening line
+    if name:
+        gpa_str = f" (المعدل التراكمي: {gpa:.2f})" if gpa is not None else ""
+        lines.append(f"بناءً على مراجعة سجلك الأكاديمي — {name}{gpa_str}:\n")
+
+    # Overall verdict
+    failed   = [c for c in rule_checks if not c.get("passed")]
+    passed   = [c for c in rule_checks if c.get("passed")]
+    critical = [c for c in failed if c.get("severity") == "critical"]
+
+    if critical:
+        lines.append("⚠️  تنبيه هام: توجد مشكلة حرجة تستدعي مراجعة فورية.")
+    elif failed:
+        lines.append("لاحظ النظام الآلي بعض النقاط التي تستدعي الانتباه:")
+    else:
+        lines.append("وفقاً للفحص الآلي للسياسات، لا توجد موانع في سجلك الأكاديمي الحالي.")
+
+    lines.append("")
+
+    # Checks — failed first, then passed
+    for c in failed:
+        lines.append(f"❌  {c.get('detail', '')}")
+    for c in passed:
+        lines.append(f"✅  {c.get('detail', '')}")
+
+    # Active warnings
+    warnings = sd.get("active_warnings", []) or []
+    if warnings:
+        lines.append("\nتنبيهات نشطة:")
+        for w in warnings:
+            wt = w.get("warning_type", "") if isinstance(w, dict) else str(w)
+            wd = w.get("description", "") if isinstance(w, dict) else ""
+            lines.append(f"  • {wt}: {wd}")
+
+    # Graduation progress / remaining courses
+    grad = sd.get("graduation_progress") or {}
+    if grad and not grad.get("error"):
+        lines.append("")
+        lines.append("📋 متطلبات التخرج:")
+        min_cred  = grad.get("min_total_credits", 0)
+        done_cred = grad.get("student_credits", 0)
+        rem_cred  = grad.get("credits_remaining", max(0, min_cred - done_cred))
+        min_gpa   = grad.get("min_gpa", 2.0)
+        gpa_met   = grad.get("gpa_met", True)
+        req_int   = grad.get("requires_internship", False)
+        req_cap   = grad.get("requires_capstone", False)
+
+        lines.append(f"  • الساعات المُكتملة:  {done_cred} / {min_cred}  (المتبقي: {rem_cred} ساعة)")
+        lines.append(f"  • المعدل المطلوب للتخرج:  {min_gpa:.2f}  {'✅' if gpa_met else '❌ المعدل دون الحد المطلوب'}")
+        if req_int:
+            lines.append("  • التدريب الميداني: مطلوب")
+        if req_cap:
+            lines.append("  • مشروع التخرج (Capstone): مطلوب")
+
+        required_courses = grad.get("required_courses", [])
+        remaining = [c for c in required_courses if not c.get("completed")]
+        completed_req = [c for c in required_courses if c.get("completed")]
+
+        if remaining:
+            core_rem = [c for c in remaining if c.get("is_core")]
+            elec_rem = [c for c in remaining if not c.get("is_core")]
+            total_rem_cred = sum(c.get("credits", 0) for c in remaining)
+            lines.append(f"\nالمقررات المتبقية ({len(remaining)} مقرر — {total_rem_cred} ساعة):")
+            if core_rem:
+                lines.append("  🔴 إجبارية:")
+                for c in core_rem:
+                    lines.append(f"    • {c['course_code']}  {c['course_name']}  ({c['credits']} ساعة)")
+            if elec_rem:
+                lines.append("  🔵 اختيارية:")
+                for c in elec_rem:
+                    lines.append(f"    • {c['course_code']}  {c['course_name']}  ({c['credits']} ساعة)")
+        else:
+            lines.append("  ✅ أتممت جميع المقررات المطلوبة — تأكد من استيفاء الساعات الكلية.")
+
+        if completed_req:
+            lines.append(f"\nالمقررات المكتملة من الخطة: {len(completed_req)} مقرر")
+    else:
+        # Most relevant regulation excerpt (only when no graduation data)
+        if documents:
+            doc     = documents[0]
+            content = (getattr(doc, "content", "") or "")[:350]
+            meta    = getattr(doc, "meta", {}) or {}
+            source  = meta.get("source", "")
+            if content:
+                lines.append(f"\nاللائحة ذات الصلة — {source}:")
+                lines.append(content)
+
+    lines.append("")
+    lines.append("يُنصح بالتواصل مع مرشدك الأكاديمي للحصول على تقييم شامل ومفصّل.")
+    return "\n".join(lines)
+
+
+def _format_sql_fallback(sql_result: Dict[str, Any]) -> str:
+    """Format SQL data as a professional Arabic advisory response when LLM is unavailable."""
+    data = sql_result.get("data", {}) or {}
+    if not data:
+        return "لا توجد بيانات متاحة في السجل الأكاديمي.\nيرجى التواصل مع مكتب الشؤون الأكاديمية."
+
+    name     = data.get("full_name", "الطالب")
+    gpa      = data.get("gpa")
+    credits  = data.get("total_credits")
+    standing = (data.get("academic_standing") or "").lower()
+    dept     = data.get("department", "")
+    s_num    = data.get("student_number", "")
+
+    lines = [f"أهلاً {name}،", ""]
+
+    if gpa is not None:
+        if gpa >= 3.7:    qual = "ممتاز — مرشح لقائمة الشرف"
+        elif gpa >= 3.0:  qual = "جيد جداً"
+        elif gpa >= 2.0:  qual = "جيد — فوق الحد الأدنى المطلوب"
+        elif gpa >= 1.5:  qual = "دون المستوى المطلوب — يستوجب التحسين"
+        else:             qual = "ضعيف — خطر الإنذار الأكاديمي"
+        lines.append(f"المعدل التراكمي:  {gpa:.2f}  ({qual})")
+
+    if credits is not None:
+        lines.append(f"الساعات المعتمدة المكتملة:  {credits} ساعة")
+
+    if dept:
+        lines.append(f"التخصص:  {dept}")
+
+    if s_num:
+        lines.append(f"الرقم الجامعي:  {s_num}")
+
+    standing_map = {
+        "good":               "الوضع الأكاديمي:  جيد ومستقر ✅",
+        "satisfactory":       "الوضع الأكاديمي:  مُرضٍ ✅",
+        "excellent":          "الوضع الأكاديمي:  ممتاز ✅",
+        "probation":          "الوضع الأكاديمي:  إنذار أكاديمي ⚠️",
+        "academic probation": "الوضع الأكاديمي:  إنذار أكاديمي ⚠️",
+        "severe probation":   "الوضع الأكاديمي:  إنذار أكاديمي حاد ❌",
+    }
+    if standing in standing_map:
+        lines.append(standing_map[standing])
+
+    lines.append("")
+    lines.append("للاستفسار عن خطتك الدراسية أو متطلبات التخرج، تواصل مع مرشدك الأكاديمي.")
+    return "\n".join(lines)
+
+
+def _format_rag_fallback(documents: List) -> str:
+    """Format RAG documents as a professional Arabic advisory response when LLM is unavailable."""
+    if not documents:
+        return "لم يتم العثور على لوائح ذات صلة بسؤالك.\nيرجى التواصل مع مكتب الشؤون الأكاديمية."
+
+    lines = ["فيما يلي اللوائح الجامعية ذات الصلة بسؤالك:", ""]
+    for doc in documents[:2]:
+        content = (getattr(doc, "content", "") or "")[:500]
+        meta    = getattr(doc, "meta", {}) or {}
+        source  = meta.get("source", "")
+        section = meta.get("section", "")
+        if not content:
+            continue
+        header = source
+        if section:
+            header += f" — {section}"
+        lines.append(f"▌ {header}")
+        lines.append(content)
+        lines.append("")
+
+    if len(lines) <= 2:
+        return "لم يتم العثور على لوائح ذات صلة بسؤالك.\nيرجى التواصل مع مكتب الشؤون الأكاديمية."
+
+    lines.append("للاستفسار أو التوضيح، تواصل مع مكتب الشؤون الأكاديمية.")
+    return "\n".join(lines)
 
 
 def _fallback_response(prompt: str) -> str:
@@ -629,7 +823,12 @@ async def _build_prompt_for_query(
                 _sd["eligibility_check"] = _elig
 
             q_lower = question.lower()
-            if any(kw in q_lower for kw in ["graduat", "degree", "requirements", "hours"]):
+            _grad_kws = [
+                "graduat", "degree", "requirements", "hours",
+                "left", "remain", "missing", "needed", "finish", "complet",
+                "متبقي", "تبقى", "مواد", "كورسات", "ساعات", "تخرج", "إنهاء",
+            ]
+            if any(kw in q_lower for kw in _grad_kws):
                 _grad = await q.get_graduation_requirements(session, student_id) or {}
                 _sd["graduation_progress"] = _grad
 
@@ -711,6 +910,15 @@ async def process_query_stream(
         # Stream LLM tokens
         full_response = ""
         async for token in _call_ollama_stream(prompt):
+            # _call_ollama_stream yields the full fallback string as one token when
+            # Ollama is down — intercept it and replace with structured data answer.
+            if _ollama_unavailable(token):
+                if query_type == QueryType.HYBRID:
+                    token = _build_no_llm_answer(rule_checks, student_data, documents or [])
+                elif query_type == QueryType.RAG_ONLY:
+                    token = _format_rag_fallback(documents or [])
+                else:  # SQL_ONLY
+                    token = _format_sql_fallback({"data": student_data})
             full_response += token
             # SSE format: each event is "event: type\ndata: content\n\n"
             yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"

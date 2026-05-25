@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المساعد الأكاديمي</title>
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <title>المساعد الأكاديمي | Academic Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <!-- Phosphor Icons for beautiful scalable icons -->
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
 </head>
 <body>
@@ -16,14 +15,32 @@
     </div>
 
     <div class="app-container">
+
         <!-- LOGIN SCREEN -->
         <section id="login-screen" class="screen active">
             <div class="glass-panel login-panel">
                 <div class="brand">
                     <i class="ph-fill ph-student"></i>
-                    <h1>المساعد الأكاديمي</h1>
-                    <p>مرشدك الجامعي الذكي</p>
+                    <h1 id="brand-title">المساعد الأكاديمي</h1>
+                    <p id="brand-sub">مرشدك الجامعي الذكي</p>
                 </div>
+
+                <div class="lang-pills">
+                    <button type="button" id="lang-ar-btn" class="lang-pill active" onclick="setLanguage('ar')">العربية</button>
+                    <button type="button" id="lang-en-btn" class="lang-pill" onclick="setLanguage('en')">English</button>
+                </div>
+
+                <!-- Quick-login demo buttons -->
+                <div class="quick-logins">
+                    <span class="quick-label" id="quick-label">دخول سريع:</span>
+                    <button type="button" class="quick-btn" data-u="khalid"   data-p="student123">khalid</button>
+                    <button type="button" class="quick-btn" data-u="noor"     data-p="student123">noor</button>
+                    <button type="button" class="quick-btn" data-u="tariq"    data-p="student123">tariq</button>
+                    <button type="button" class="quick-btn" data-u="lina"     data-p="student123">lina</button>
+                    <button type="button" class="quick-btn" data-u="advisor"  data-p="advisor123">advisor</button>
+                    <button type="button" class="quick-btn admin" data-u="admin" data-p="admin123">admin</button>
+                </div>
+
                 <form id="login-form">
                     <div class="input-group">
                         <i class="ph ph-user"></i>
@@ -34,8 +51,8 @@
                         <input type="password" id="password" placeholder="كلمة المرور" required autocomplete="current-password">
                     </div>
                     <button type="submit" id="login-btn">
-                        <span>تسجيل الدخول</span>
-                        <i class="ph-bold ph-arrow-left"></i>
+                        <span id="login-btn-text">تسجيل الدخول</span>
+                        <i class="ph-bold ph-sign-in"></i>
                     </button>
                     <div id="login-error" class="error-text"></div>
                 </form>
@@ -45,47 +62,68 @@
         <!-- CHAT SCREEN -->
         <section id="chat-screen" class="screen">
             <div class="glass-panel chat-panel">
+
                 <header class="chat-header">
                     <div class="header-info">
                         <div class="avatar">
                             <i class="ph-fill ph-robot"></i>
                         </div>
                         <div class="status">
-                            <h2>المساعد</h2>
-                            <span class="online-indicator">متصل</span>
+                            <h2 id="header-title">المساعد الأكاديمي</h2>
+                            <span class="online-indicator" id="online-status">متصل</span>
                         </div>
                     </div>
-                    <button type="button" id="voice-toggle-btn" title="تفعيل/تعطيل الصوت" class="voice-on">
-                        <i class="ph-fill ph-speaker-high"></i>
-                    </button>
-                    <button type="button" id="logout-btn" title="تسجيل الخروج">
-                        <i class="ph ph-sign-out"></i>
-                    </button>
+                    <div class="header-actions">
+                        <div id="user-display" class="user-badge"></div>
+                        <button type="button" id="lang-toggle-btn" class="icon-btn lang-toggle" title="Switch language">
+                            <span id="lang-label">EN</span>
+                        </button>
+                        <button type="button" id="voice-toggle-btn" class="icon-btn voice-on" title="Toggle voice">
+                            <i class="ph-fill ph-speaker-high"></i>
+                        </button>
+                        <button type="button" id="clear-btn" class="icon-btn" title="Clear chat">
+                            <i class="ph ph-trash"></i>
+                        </button>
+                        <button type="button" id="logout-btn" class="icon-btn" title="Logout">
+                            <i class="ph ph-sign-out"></i>
+                        </button>
+                    </div>
                 </header>
 
-                <div class="chat-messages" id="chat-messages">
-                    <div class="message assistant welcome">
-                        <div class="bubble">
-                            <p>أهلاً بك! أنا مساعدك الأكاديمي الذكي. كيف يمكنني مساعدتك اليوم؟</p>
-                        </div>
-                    </div>
+                <div class="chat-messages" id="chat-messages"></div>
+
+                <div id="suggestions" class="suggestions" style="display:none">
+                    <button type="button" class="suggestion-chip" data-ar="ما هو معدلي التراكمي؟" data-en="What is my GPA?"></button>
+                    <button type="button" class="suggestion-chip" data-ar="هل يمكنني التسجيل في التدريب؟" data-en="Can I register for internship?"></button>
+                    <button type="button" class="suggestion-chip" data-ar="ما هي متطلبات التخرج؟" data-en="What are the graduation requirements?"></button>
+                    <button type="button" class="suggestion-chip" data-ar="ما هي سياسة الانسحاب من المقررات؟" data-en="What is the withdrawal policy?"></button>
+                    <button type="button" class="suggestion-chip" data-ar="هل أنا على قائمة الإنذار الأكاديمي؟" data-en="Am I on academic probation?"></button>
                 </div>
 
                 <div class="chat-input-container">
                     <form id="chat-form">
-                        <button type="button" id="mic-btn" aria-label="إدخال صوتي">
+                        <button type="button" id="mic-btn" class="icon-btn" aria-label="Voice input">
                             <i class="ph-fill ph-microphone"></i>
                         </button>
-                        <input type="text" id="question-input" placeholder="اسأل عن اللوائح، المعدل، التدريب..." required autocomplete="off">
-                        <button type="submit" id="send-btn" aria-label="إرسال">
-                            <i class="ph-fill ph-paper-plane-left"></i>
+                        <input type="text" id="question-input"
+                               placeholder="اسأل عن اللوائح، المعدل، التدريب..."
+                               autocomplete="off">
+                        <button type="submit" id="send-btn" aria-label="Send">
+                            <i class="ph-fill ph-paper-plane-tilt"></i>
                         </button>
                     </form>
                 </div>
+
             </div>
         </section>
     </div>
 
+    <div id="toast"></div>
+
+    <!--
+        To point to a remote server (Reachy Mini / production):
+        <script>window.API_BASE = "http://SERVER_IP:8000/api/v1";</script>
+    -->
     <script src="app.js"></script>
 </body>
 </html>

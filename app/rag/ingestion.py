@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -38,39 +37,42 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _read_regulation_files(directory: str) -> List[Document]:
+def _read_text_files(directory: str) -> List[Document]:
     """
-    Read all .txt regulation files from the given directory
-    and convert them to Haystack Document objects with metadata.
+    Read all .txt files from a directory and convert them to
+    Haystack Document objects with metadata.
+
+    The document type is inferred from the directory name:
+      - directories containing 'knowledge' → type='knowledge'
+      - all others                         → type='regulation'
     """
     documents = []
-    reg_dir = Path(directory)
+    source_dir = Path(directory)
 
-    if not reg_dir.exists():
-        logger.warning(f"Regulations directory not found: {directory}")
+    if not source_dir.exists():
+        logger.debug(f"Directory not found (skipping): {directory}")
         return documents
 
-    for filepath in sorted(reg_dir.glob("*.txt")):
-        logger.info(f"Reading regulation file: {filepath.name}")
+    # Infer document type from directory name
+    doc_type = "knowledge" if "knowledge" in source_dir.name else "regulation"
 
+    for filepath in sorted(source_dir.glob("*.txt")):
+        logger.info(f"  Reading [{doc_type}] {filepath.name}")
         content = filepath.read_text(encoding="utf-8")
-
-        # Extract metadata from the file content
         title = filepath.stem.replace("_", " ").title()
 
-        # Parse sections from the document
         doc = Document(
             content=content,
             meta={
                 "source": filepath.name,
                 "title": title,
                 "file_path": str(filepath),
-                "type": "regulation",
+                "type": doc_type,
             },
         )
         documents.append(doc)
 
-    logger.info(f"Read {len(documents)} regulation files")
+    logger.info(f"  Read {len(documents)} files from {source_dir}")
     return documents
 
 
@@ -130,33 +132,34 @@ def build_ingestion_pipeline() -> Pipeline:
 
 
 async def ingest_documents(
-    directory: Optional[str] = None,
+    directories: Optional[List[str]] = None,
     documents: Optional[List[Document]] = None,
 ) -> dict:
     """
-    Run the ingestion pipeline on regulation documents.
+    Run the ingestion pipeline on text documents from one or more directories.
 
     This is an async function. The heavy Haystack pipeline.run() call is
     offloaded to a thread pool via asyncio.to_thread() so it does not block
     the FastAPI event loop during ingestion.
 
     Args:
-        directory: Path to regulation files directory.
-                   Defaults to 'data/regulations/'.
-        documents: Optional pre-created Document list (for API uploads).
+        directories: List of directory paths to read .txt files from.
+                     Defaults to both 'data/regulations/' and 'data/knowledge/'.
+        documents:   Optional pre-created Document list (bypasses directory scan,
+                     used for API-uploaded files).
 
     Returns:
         Dict with ingestion results.
     """
     if documents is None:
-        if directory is None:
-            # Default to project's data/regulations/ directory
-            directory = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "data",
-                "regulations",
-            )
-        documents = _read_regulation_files(directory)
+        if directories is None:
+            directories = [
+                settings.REGULATIONS_DATA_DIR,
+                settings.KNOWLEDGE_DATA_DIR,
+            ]
+        documents = []
+        for directory in directories:
+            documents.extend(_read_text_files(directory))
 
     if not documents:
         return {
@@ -227,7 +230,8 @@ async def ingest_text(
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
-    result = ingest_documents()
+    result = asyncio.run(ingest_documents())
     print(f"\nIngestion Result: {result}")
