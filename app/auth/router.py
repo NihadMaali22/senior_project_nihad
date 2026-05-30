@@ -19,6 +19,7 @@ from app.auth.schemas import (
     TokenPayload,
     TokenResponse,
     UserResponse,
+    StudentProfileResponse,
 )
 from app.auth.service import authenticate_user, create_access_token, hash_password
 from app.db.models import User
@@ -128,3 +129,97 @@ async def get_me(
             detail="User not found",
         )
     return user
+
+
+@router.get(
+    "/student-profile",
+    response_model=StudentProfileResponse,
+    summary="Get Current Student Profile",
+)
+async def get_student_profile(
+    current_user: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Retrieve the student profile details for the currently logged in student.
+    """
+    if current_user.student_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current user is not associated with a student record",
+        )
+
+    from sqlalchemy import select, func
+    from app.db.models import Student, Department, GraduationRequirement, Enrollment, Course
+
+    # 1. Fetch Student, Department details
+    query = (
+        select(Student, Department)
+        .outerjoin(Department, Student.department_id == Department.id)
+        .where(Student.id == current_user.student_id)
+    )
+    result = await session.execute(query)
+    row = result.first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Student record not found for ID {current_user.student_id}",
+        )
+    student, department = row
+
+    # 2. Fetch Graduation Requirements to calculate remaining credits
+    min_credits = 132  # Default fallback
+    if student.department_id is not None:
+        grad_req_query = select(GraduationRequirement).where(
+            GraduationRequirement.department_id == student.department_id
+        )
+        grad_req_res = await session.execute(grad_req_query)
+        grad_req = grad_req_res.scalar_one_or_none()
+        if grad_req:
+            min_credits = grad_req.min_total_credits
+
+    remaining_credits = max(0, min_credits - student.total_credits)
+
+    # 3. Fetch current registered hours (sum of credits for courses enrolled in the latest semester)
+    # Let's find the latest semester from the enrollments
+    sem_query = (
+        select(Enrollment.semester)
+        .where(Enrollment.student_id == student.id)
+        .order_by(Enrollment.academic_year.desc(), Enrollment.created_at.desc())
+        .limit(1)
+    )
+    sem_res = await session.execute(sem_query)
+    latest_semester = sem_res.scalar_one_or_none() or "Spring"
+
+    # Sum credits of courses enrolled in this latest semester
+    reg_credits_query = (
+        select(func.sum(Course.credits))
+        .select_from(Enrollment)
+        .join(Course, Enrollment.course_id == Course.id)
+        .where(
+            Enrollment.student_id == student.id,
+            Enrollment.semester == latest_semester,
+            Enrollment.status.in_(["enrolled", "in_progress"])
+        )
+    )
+    reg_credits_res = await session.execute(reg_credits_query)
+    registered_credits = reg_credits_res.scalar() or 0
+
+    return StudentProfileResponse(
+        student_id=student.id,
+        student_number=student.student_number,
+        first_name=student.first_name,
+        last_name=student.last_name,
+        full_name=student.full_name,
+        email=student.email,
+        gpa=float(student.gpa),
+        total_credits=student.total_credits,
+        registered_credits=int(registered_credits),
+        remaining_credits=int(remaining_credits),
+        status=student.status,
+        academic_standing=student.academic_standing,
+        department_name=department.name if department else None,
+        department_code=department.code if department else None,
+        semester=latest_semester,
+    )
+

@@ -35,7 +35,7 @@ def create_wav_header(sample_rate: int = 24000, num_channels: int = 1, bits_per_
     Creates a standard RIFF/WAVE header for streaming PCM data.
     Uses 0xFFFFFFFF for data size since we are streaming and don't know the exact size upfront.
     """
-    data_size = 0xFFFFFFFF  # Max size for streaming
+    data_size = 0xFFFFFFFF - 36  # Max size for streaming under 32-bit limits (4GB)
     byte_rate = sample_rate * num_channels * (bits_per_sample // 8)
     block_align = num_channels * (bits_per_sample // 8)
     

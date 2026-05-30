@@ -67,7 +67,7 @@ def _get_http_client() -> httpx.AsyncClient:
     global _fallback_http_client
     if _fallback_http_client is None or _fallback_http_client.is_closed:
         _fallback_http_client = httpx.AsyncClient(
-            timeout=float(settings.OLLAMA_TIMEOUT),
+            timeout=float(settings.GEMINI_TIMEOUT),
         )
     return _fallback_http_client
 
@@ -371,94 +371,172 @@ async def _handle_hybrid_query(
 # ============================================================
 async def _call_ollama(prompt: str) -> str:
     """
-    Send a prompt to the Ollama local LLM and return the full response.
-    Uses the shared httpx.AsyncClient from app.state for connection reuse.
-    Falls back to a basic response if Ollama is unavailable.
+    Send a prompt to the Gemini API (acting as a drop-in replacement for Ollama)
+    and return the full response.
     """
+    # --- Ollama Local LLM (Commented Out) ---
+    # try:
+    #     client = _get_http_client()
+    #     response = await client.post(
+    #         "/api/generate",
+    #         json={
+    #             "model": settings.OLLAMA_MODEL,
+    #             "prompt": prompt,
+    #             "stream": False,
+    #             "options": {
+    #                 "temperature": 0.3,
+    #                 "top_p": 0.9,
+    #                 "num_predict": 512,
+    #                 "num_ctx": 2048,
+    #             },
+    #         },
+    #     )
+    # 
+    #     if response.status_code == 200:
+    #         return response.json().get("response", "No response generated.")
+    #     else:
+    #         logger.error(f"Ollama returned status {response.status_code}: {response.text[:200]}")
+    #         return _fallback_response(prompt)
+    # ...
+
+    if not settings.GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
+        return _fallback_response(prompt)
+
     try:
         client = _get_http_client()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 4096
+            }
+        }
+        
         response = await client.post(
-            "/api/generate",
-            json={
-                "model": settings.OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,
-                    "top_p": 0.9,
-                    "num_predict": 512,
-                },
-            },
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"}
         )
 
         if response.status_code == 200:
-            return response.json().get("response", "No response generated.")
+            res_json = response.json()
+            try:
+                text = res_json['candidates'][0]['content']['parts'][0]['text']
+                return text
+            except (KeyError, IndexError) as e:
+                logger.error(f"Unexpected Gemini response structure: {res_json}")
+                return _fallback_response(prompt)
         else:
-            logger.error(f"Ollama returned status {response.status_code}: {response.text[:200]}")
+            logger.error(f"Gemini API returned status {response.status_code}: {response.text[:200]}")
             return _fallback_response(prompt)
 
     except httpx.TimeoutException:
-        logger.error("Ollama request timed out")
+        logger.error("Gemini request timed out")
         return _fallback_response(prompt)
     except httpx.ConnectError:
-        logger.error("Could not connect to Ollama. Is it running?")
+        logger.error("Could not connect to Gemini API. Check your internet connection.")
         return _fallback_response(prompt)
     except Exception as e:
-        logger.error(f"Ollama error: {e}", exc_info=True)
+        logger.error(f"Gemini error: {e}", exc_info=True)
         return _fallback_response(prompt)
-
 
 
 async def _call_ollama_stream(prompt: str):
     """
-    Stream tokens from Ollama as they are generated.
-    Uses the shared httpx.AsyncClient from app.state for connection reuse.
-    Yields each token string as it arrives.
-    Falls back to yielding the full fallback response if Ollama is unavailable.
+    Stream tokens from Gemini API (acting as a drop-in replacement for Ollama).
     """
+    # --- Ollama Local LLM (Commented Out) ---
+    # try:
+    #     client = _get_http_client()
+    #     async with client.stream(
+    #         "POST",
+    #         "/api/generate",
+    #         json={
+    #             "model": settings.OLLAMA_MODEL,
+    #             "prompt": prompt,
+    #             "stream": True,
+    #             "options": {
+    #                 "temperature": 0.3,
+    #                 "top_p": 0.9,
+    #                 "num_predict": 512,
+    #                 "num_ctx": 2048,
+    #             },
+    #         },
+    #     ) as response:
+    #         if response.status_code != 200:
+    #             error_text = await response.aread()
+    #             logger.error(f"Ollama stream error: {response.status_code} - {error_text[:200]}")
+    #             yield _fallback_response(prompt)
+    #             return
+    # 
+    #         async for line in response.aiter_lines():
+    #             ...
+
+    if not settings.GEMINI_API_KEY:
+        logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
+        yield _fallback_response(prompt)
+        return
+
     try:
         client = _get_http_client()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:streamGenerateContent?alt=sse&key={settings.GEMINI_API_KEY}"
+        
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 4096
+            }
+        }
+
         async with client.stream(
             "POST",
-            "/api/generate",
-            json={
-                "model": settings.OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": True,
-                "options": {
-                    "temperature": 0.3,
-                    "top_p": 0.9,
-                    "num_predict": 512,
-                },
-            },
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"}
         ) as response:
             if response.status_code != 200:
                 error_text = await response.aread()
-                logger.error(f"Ollama stream error: {response.status_code} - {error_text[:200]}")
+                logger.error(f"Gemini stream error: {response.status_code} - {error_text[:200]}")
                 yield _fallback_response(prompt)
                 return
 
             async for line in response.aiter_lines():
                 if not line.strip():
                     continue
-                try:
-                    data = json.loads(line)
-                    token = data.get("response", "")
-                    if token:
-                        yield token
-                    if data.get("done", False):
-                        break
-                except json.JSONDecodeError:
-                    continue
+                if line.startswith("data: "):
+                    json_str = line[len("data: "):]
+                    try:
+                        chunk = json.loads(json_str)
+                        token = chunk['candidates'][0]['content']['parts'][0].get('text', '')
+                        if token:
+                            yield token
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
 
     except httpx.TimeoutException:
-        logger.error("Ollama stream timed out")
+        logger.error("Gemini stream timed out")
         yield _fallback_response(prompt)
     except httpx.ConnectError:
-        logger.error("Could not connect to Ollama for streaming. Is it running?")
+        logger.error("Could not connect to Gemini API. Check your internet connection.")
         yield _fallback_response(prompt)
     except Exception as e:
-        logger.error(f"Ollama stream error: {e}", exc_info=True)
+        logger.error(f"Gemini stream error: {e}", exc_info=True)
         yield _fallback_response(prompt)
 
 
@@ -934,8 +1012,10 @@ async def process_query_stream(
                 reasoning.append(f"{status_icon} {check['detail']}")
             reasoning.extend(parsed.get("reasoning", []))
             decision = parsed.get("decision", DecisionOutcome.INFO)
+            clean_answer = parsed.get("answer", full_response)
         else:
             decision = DecisionOutcome.INFO
+            clean_answer = full_response
 
         # Send metadata as final event
         metadata = {
@@ -945,7 +1025,7 @@ async def process_query_stream(
             "confidence": _calculate_confidence(documents, rule_checks) if documents else 0.9,
             "query_type": query_type.value,
             "session_id": session_id,
-            "answer": full_response,
+            "answer": clean_answer,
         }
         yield f"event: metadata\ndata: {json.dumps(metadata, default=str)}\n\n"
         yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
@@ -953,7 +1033,7 @@ async def process_query_stream(
         # Save assistant response to conversation history
         if session_id:
             await save_message(
-                session, session_id, "assistant", full_response, user_id,
+                session, session_id, "assistant", clean_answer, user_id,
                 metadata={"query_type": query_type.value, "decision": decision.value if decision else None},
             )
 

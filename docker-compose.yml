@@ -49,63 +49,53 @@ services:
       - qdrant_data:/qdrant/storage
     environment:
       QDRANT__SERVICE__GRPC_PORT: "6334"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:6333/healthz || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+
     networks:
       - academic_net
 
   # --------------------------------------------------------
   # Ollama — Local LLM Server (llama3.1:8b)
   # --------------------------------------------------------
-  ollama:
-    image: ollama/ollama:0.3.12
-    container_name: academic_ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    # ── GPU support (NVIDIA only) ──────────────────────────
-    # Requires nvidia-container-toolkit on the host.
-    # Remove or comment out this block on CPU-only machines.
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - academic_net
+  # ollama:
+  #   image: ollama/ollama:0.3.12
+  #   container_name: academic_ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   # ── GPU support (NVIDIA only) ──────────────────────────
+  #   # Requires nvidia-container-toolkit on the host.
+  #   # Remove or comment out this block on CPU-only machines.
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: all
+  #   #           capabilities: [gpu]
+
+  #   networks:
+  #     - academic_net
 
   # --------------------------------------------------------
   # Ollama Init — Pull the LLM model on first run
   # --------------------------------------------------------
-  ollama-init:
-    image: ollama/ollama:0.3.12
-    container_name: academic_ollama_init
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      "until curl -sf http://ollama:11434/; do echo 'waiting for ollama...'; sleep 3; done;
-       ollama pull llama3.1:8b"
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    depends_on:
-      ollama:
-        condition: service_healthy
-    networks:
-      - academic_net
-    restart: "no"
+  # ollama-init:
+  #   image: ollama/ollama:0.3.12
+  #   container_name: academic_ollama_init
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   command: >
+  #     "until ollama list; do echo 'waiting for ollama...'; sleep 3; done;
+  #      ollama pull llama3.1:8b"
+  #   environment:
+  #     OLLAMA_HOST: http://ollama:11434
+  #   depends_on:
+  #     ollama:
+  #       condition: service_started
+  #   networks:
+  #     - academic_net
+  #   restart: "no"
 
   # --------------------------------------------------------
   # Application — Academic Decision Assistant
@@ -131,9 +121,9 @@ services:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
+        condition: service_started
+      # ollama:
+      #   condition: service_started
     networks:
       - academic_net
 

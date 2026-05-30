@@ -322,7 +322,17 @@ function appendWelcomeMessage() {
 function appendMessage(type, htmlContent) {
     const div = document.createElement('div');
     div.className = `message ${type}`;
-    div.innerHTML = `<div class="bubble">${htmlContent}</div>`;
+    if (type.includes('assistant') && !type.includes('welcome')) {
+        div.innerHTML = `
+            <div class="message-wrapper">
+                <div class="bot-avatar-small">
+                    <img src="robot.png" alt="Mascot">
+                </div>
+                <div class="bubble">${htmlContent}</div>
+            </div>`;
+    } else {
+        div.innerHTML = `<div class="bubble">${htmlContent}</div>`;
+    }
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     return div;
@@ -340,12 +350,25 @@ function appendTypingIndicator() {
 function appendStreamingMessage() {
     const div    = document.createElement('div');
     div.className = 'message assistant';
+    
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-wrapper';
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'bot-avatar-small';
+    avatar.innerHTML = `<img src="robot.png" alt="Mascot">`;
+    
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
+    
     const text   = document.createElement('p');
     text.className = 'streaming-text';
+    
     bubble.appendChild(text);
-    div.appendChild(bubble);
+    wrapper.appendChild(avatar);
+    wrapper.appendChild(bubble);
+    div.appendChild(wrapper);
+    
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     return { div, bubble, text };
@@ -546,7 +569,12 @@ async function sendStreaming(question, typingMsg) {
 
     text.classList.remove('streaming-text');
 
-    if (metadata) appendMetadata(bubble, metadata);
+    if (metadata) {
+        if (metadata.answer) {
+            text.textContent = metadata.answer;
+        }
+        appendMetadata(bubble, metadata);
+    }
     speak(metadata?.answer || fullAnswer);
 }
 

@@ -1,0 +1,186 @@
+Academic Workload Calculation Regulations
+Arab American University – Palestine
+Approved by the Deans' Council on 27 May 2025
+Chapter One: Definitions
+Article (1): Name
+These regulations shall be named the "Academic Workload Calculation Regulations of the Arab American University".
+Article (2): Definitions
+The following words and phrases, wherever they appear in these regulations, shall have the meanings assigned to them below, unless the context indicates otherwise:
+Academic Workload: The total teaching work hours performed by a faculty member during and outside official working hours. It is calculated as a single aggregate load and is not separated.
+
+Theoretical Courses: Courses in which contact hours equal the credit hours, taught at a rate of 16 contact hours per credit hour per semester, and calculated at full rate for financial purposes.
+
+Weak Section (Bachelor's and Diploma): A section in which the number of enrolled students is 14 or fewer for theoretical courses, or 7 or fewer for practical courses. Specific criteria must be met for it to be accepted, namely academic necessity and the unavailability of an alternative.
+
+Weak Section (Graduate Studies): A section in theoretical courses in which the number of enrolled students is 4 or fewer.
+
+Weak Intake (Bachelor's and Diploma): A student cohort in which a limited number of students are admitted, and which receives special treatment in workload calculation when a course designated for that cohort is taught. It is a cohort in which the number of admitted students is fewer than 15 in theoretical courses, or fewer than 8 students in practical courses. For a cohort to be classified as a weak intake, the course must be offered only once per academic year (in the first, second, or summer semester) and must be listed in the advisory plan. In this case, the course is calculated at full academic workload; otherwise, the section is treated as a weak section. Approval of a weak intake requires a recommendation from the Academic Vice President to the Vice President for Administrative and Financial Affairs to be submitted to the University President for endorsement.
+
+Weak Intake (Graduate Studies): A student cohort in which a limited number of students are admitted, and which receives special treatment in workload calculation. It is a cohort in which the number of admitted students is fewer than 5 students in either theoretical or practical courses. For a cohort to be classified as a weak intake, the course must be offered only once per academic year (in the first, second, or summer semester) and must be listed in the advisory plan. In this case, the course is calculated at full academic workload; otherwise, the section is treated as a weak section. Approval requires a recommendation from the Dean of the Graduate Studies College to the Vice President for Administrative and Financial Affairs, to be submitted to the University President for endorsement.
+Article (3): Standard Workload Requirements
+Academic workload must be completed within the academic year in accordance with the approved faculty regulations, specifically Article (24) of the Faculty Regulations, such that any shortfall in teaching load in one semester is compensated in the following semester, as follows:
+1. The teaching load for a Professor is 18 credit hours per academic year (two regular semesters).
+2. The teaching load for an Associate Professor, Assistant Professor, Lecturer, and Instructor is 24 credit hours per academic year (two regular semesters).
+3. The teaching load for a Lecturer and Instructor in Specialized Professional Diploma and Associate Diploma programs is 30 credit hours per academic year (two regular semesters), according to the faculty to which the member belongs.
+4. For special and annual contracts: an additional 6–8 credit hours per academic year are added to the teaching loads mentioned above.
+Article (4): Scope of Academic Workload
+The academic workload of an instructor includes work during and outside official working hours. It is calculated as a single aggregate load and the two are not separated.
+Article (5): Mixed Assignment (Bachelor's and Graduate Courses in Same Semester)
+If an instructor is assigned courses from both the bachelor's and graduate levels in the same semester and there is additional workload, the additional load is calculated according to the bachelor's workload calculation method when the instructor is seconded from the Graduate Studies College to teach bachelor's courses. Conversely, it is calculated according to the graduate workload method when the instructor is seconded from another college to teach graduate courses.
+Chapter Two: Bachelor's and Diploma Programs
+Article (6): Practical Courses (Laboratories, Studios, Workshops)
+Contact hours for practical courses are two or three times the credit hours, according to the course definition and academic plan, taught at 32 or 48 contact hours per credit hour. The workload is calculated as 1.33 credit hours (32 contact hours) or 2 credit hours (48 contact hours) for financial calculation purposes.
+Exception: Practical courses in the Language Center are treated as theoretical courses for workload purposes at a full rate — workload: 2 credit hours (32 contact hours).
+Article (7): Practical Courses (Dentistry Clinics)
+Contact hours for practical courses equal twice the credit hours, as defined in the course and academic plan, taught at 32 contact hours per credit hour. The workload is calculated as 1.5 credit hours for financial purposes.
+Article (8): Research Courses and Graduation Projects
+Research courses are calculated based on the number of credit hours of the course, calculated per student, according to the following table. The maximum number of projects per instructor per period is 5, with no more than 3 students per project:
+
+Course Credit Hours	Course Workload per Student (for financial calculation)
+3.0	0.25
+2.0	0.17
+1.0	0.11
+
+Exception: The College of Engineering, the College of Information Technology, and the Interior Architecture major, where the graduation project spans two semesters and requires high effort from both student and supervisor. The workload is calculated according to the following table:
+
+Senior Project	Credit Hours	Workload per Student
+Graduation Project 1 – College of Engineering	2.00	0.33
+Graduation Project 2 – College of Engineering	3.00	0.50
+Graduation Project 1 – College of Information Technology	1.00	0.11
+Graduation Project 2 – College of Information Technology	3.00	0.33
+Final Thesis Research (210214290) – Interior Architecture	3.00	0.30
+Final Thesis (210214210) – Interior Architecture	3.00	0.40
+
+Article (9): Field Training Courses
+The workload for financial calculation purposes is calculated based on the Field Training Regulations.
+Article (10): Weak Sections – Bachelor's and Diploma
+The following conditions must be met for a section to be classified as weak; otherwise, the section is closed:
+a. It is a single (unique) section and no other sections are offered.
+b. The section is necessary and cannot be postponed — for example, it is required by graduating students who cannot register an alternative course (per the Bachelor's or Diploma Degree Conferral Regulations).
+
+Calculation Method for Weak Sections
+3-credit-hour theoretical course:
+1 credit hour is calculated if 1–5 students are enrolled; each additional student beyond 5 is counted as 0.2 credit hours.
+
+2-credit-hour theoretical course:
+1 credit hour is calculated if 1–5 students are enrolled; each additional student beyond 5 is counted as 0.1 credit hours.
+
+Weak section for a practical course (laboratories, studios, workshops, clinics): calculated proportionally using the following formula:
+Workload = (Number of Students / 8) × Course Workload
+
+Note: Sections enrolled exclusively by students from a weak bachelor's/diploma intake (whether theoretical or practical) are excluded from the weak section rules stated above.
+Article (11): Large Sections – More Than 60 Students
+For theoretical sections with more than 60 students enrolled, the calculation method is as follows:
+a. If course examinations are held in-person:
+Workload = Course Hours + [(Number of Students − 60) × Course Hours / 90]
+b. If course examinations are held electronically:
+Workload = Course Hours
+Article (12): Coordination Allowance Workload
+Electronic Course Coordination
+The coordination allowance workload for electronically examined courses applies only to Obligatory University and Elective University courses. Other courses — even if their examinations are held electronically — do not receive an electronic coordination workload allowance.
+
+Theoretical Courses:
+Number of Sections	Teaching Workload (credit hours)
+1–2	0.0
+3–9	0.5
+10–15	1.0
+16–20	1.5
+More than 21	2.0
+
+Condition: The average number of students per section must exceed 60; otherwise, half the above workload applies.
+
+Practical Courses:
+Number of Sections	Teaching Workload (credit hours)
+1–5	0.00
+6–10	0.25
+11–20	0.50
+21–40	0.75
+More than 40	1.00
+
+A coordination allowance of 1.5 hours is calculated for each Integrated Course in the College of Medicine.
+Article (13): Academic Workload Calculation for Clinical-Phase Courses – College of Medicine
+Clinical course activities are divided as follows:
+1. Lecture: Workload is calculated based on contact hours, the same as theoretical courses.
+2. Clinic (Skills Lab): Workload is calculated based on contact hours, the same as practical courses.
+3. Clinical Training in Hospitals: Workload is calculated based on the Field Training Regulations and agreements with healthcare institutions.
+
+A coordination allowance of 1.5 hours is calculated per clinical course, covering supervision duties including schedule preparation, organizing clinical training, and ensuring exams run smoothly throughout the academic year — for courses with at least 6 credit hours. For other courses, a coordination allowance of 1.0 hour applies.
+Chapter Three: Graduate Studies
+Article (14): Theoretical Courses – Graduate Studies
+Instructor Workload = Course Credit Hours × 1.5
+Article (15): Weak Sections – Graduate Studies
+Weak sections are theoretical course sections with fewer than 5 students. They are calculated as follows:
+Course Workload = (Course Credit Hours × Number of Students) / 3
+Article (16): Coordinators for Electronic Courses with On-Campus Students
+(When the course instructor is outside the country, a coordinator is appointed from among the faculty members.)
+A flat rate of 1.5 credit hours is calculated for the course, in aggregate, regardless of the number of students or course hours.
+Calculation formula:
+1.5 × 16 × Rank Reward Rate
+Article (17): Special Contracts
+Payment is made according to the terms stipulated in the contract.
+Article (18): Practical Courses – Graduate Studies
+1. Medical Sciences Majors
+a. Medical training courses carry no academic workload; financial entitlements follow the Field Training Regulations per major.
+b. Laboratory courses: each credit hour is calculated as 1.5 credit hours.
+Formula: Instructor Workload = Course Credit Hours × 1.5
+Compensation formula: Course Hours × 1.5 × 16 × Rank Reward Rate
+
+2. Dentistry Majors
+Clinical training courses involve multiple instructors. The workload is distributed among the faculty members assigned to the course regardless of their contract type. However, no additional financial entitlements are paid to professors on fixed monthly salary special contracts, regardless of their total teaching load.
+
+Calculation Formula – Higher Diploma Programs:
+a. Higher Diploma in Dental Implantology: 17.5 credit hours per semester, distributed by the Head of the Dental Sciences Department among all participating instructors in lieu of teaching 15 plan credit hours. Student numbers are not taken into account.
+b. Higher Diploma in Endodontics: 15 credit hours per semester, distributed by the Head of the Dental Sciences Department among all participating instructors in lieu of teaching 14 plan credit hours. Student numbers are not taken into account.
+c. Higher Diploma in Aesthetic Dentistry: 15 credit hours per semester, distributed by the Head of the Dental Sciences Department among all participating instructors in lieu of teaching 13 plan credit hours. Student numbers are not taken into account.
+
+Calculation Formula – Residency in Orthodontics & Maxillofacial and Advanced Specialty in Dental Prosthetics:
+a. The instructor's academic workload includes all loads during and outside official working hours, calculated as a single aggregate load.
+b. Theoretical Courses:
+1. Contact hours for theoretical courses equal the credit hours; 16 contact hours per credit hour per semester.
+2. Financial workload formula: Financial Workload = Course Credit Hours × 1.5
+c. Clinical Training Courses (Clinics):
+1. Contact hours equal five times the course credit hours; 15 weekly contact hours per credit hour.
+2. Financial workload formula: Financial Workload = Course Credit Hours × 5 (clinic contact hours per week)
+d. Weak Section Workload (minimum to open a program: 3 students):
+1. Financial workload for theoretical course = Course credit hours (not multiplied by 1.5)
+2. Clinical training courses: calculated proportionally: (Course Credit Hours × Number of Students) / 3
+
+Calculation Formula – Clinical Master's Program (Clinics):
+Instructor workload: Course credit hours × 3 clinic contact hours per week per section. Minimum 4 students per section. If sections are merged for one instructor, the workload is multiplied by 1.5 per credit hour.
+
+Calculation Formula – Theoretical Lectures for Dentistry Majors:
+Course Credit Hours × 1.5 × 16 × Rank Reward Rate
+Article (19): Exclusion from Weak Section Rules – Graduate Studies
+Sections enrolled exclusively by students from a weak graduate intake are excluded from the weak section rules stated above.
+Article (20): Master's Thesis Supervision Reward
+a. A lump sum of $1,100 is allocated to the master's thesis supervision committee, paid after the defense. Thesis registration fees must not be covered by the student's scholarship. Distribution:
+1. $660 – Principal Supervisor
+2. $220 – First Committee Member
+3. $220 – Second Committee Member
+b. If the student cannot complete their thesis after 6 credit hours, they register an additional 3 credit hours. The committee receives $250 for continued supervision, paid after the defense. Distribution:
+1. $150 – Principal Supervisor
+2. $50 – First Committee Member
+3. $50 – Second Committee Member
+c. Item (b) may be repeated as needed until the thesis is completed or the permitted time lapses.
+d. External examiner reward in master's thesis defense committees: $100 lump sum, paid after the defense.
+e. Proposal reviewer reward: $50 lump sum if the reviewer is from outside the University, paid after approval of the evaluation results.
+Article (21): PhD Dissertation Supervision Reward
+a. A lump sum of $4,000 is allocated to the doctoral dissertation supervision committee, paid after the defense. Distribution:
+1. $2,000 – Principal Supervisor
+2. $1,000 – First Committee Member
+3. $1,000 – Second Committee Member
+b. If the student cannot complete the dissertation after 18 credit hours, they register an additional 6 credit hours. The committee receives $800 for continued supervision, paid after the defense. Distribution:
+1. $400 – Principal Supervisor
+2. $200 – First Committee Member
+3. $200 – Second Committee Member
+c. Item (b) may be repeated as needed until the dissertation is completed or the permitted time lapses.
+d. External examiner reward in doctoral dissertation defense committees: $200 lump sum, paid after the defense.
+e. Dissertation proposal reviewer reward: $70 lump sum if the reviewer is from outside the University, paid after approval of the evaluation results.
+Chapter Four: General Provisions
+Article (22): Unaddressed Cases
+Cases not addressed by these regulations shall be referred to the Deans' Council for resolution.
+Article (23): Repeal of Prior Regulations
+These regulations repeal any previously issued regulations or decisions related to the subject matter of these regulations.
+Article (24): Effective Date and Authority to Amend
+These regulations were issued pursuant to a decision by the University President based on recommendations from the Deans' Council dated 27 May 2025. They take effect from the date of issuance and signing by the University President. The University President reserves the right to introduce any amendments deemed necessary thereafter, based on recommendations from the Deans' Council.
+Arab American University – Palestine | Academic Workload Calculation Regulations | Approved: 27 May 2025

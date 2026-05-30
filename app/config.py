@@ -50,9 +50,14 @@ class Settings(BaseSettings):
     QDRANT_GRPC_PORT: int = 6334
 
     # ---- Ollama (Local LLM) ----
-    OLLAMA_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.1:8b"
-    OLLAMA_TIMEOUT: int = 120
+    # OLLAMA_URL: str = "http://localhost:11434"
+    # OLLAMA_MODEL: str = "llama3.1:8b"
+    # OLLAMA_TIMEOUT: int = 120
+
+    # ---- Gemini API ----
+    GEMINI_API_KEY: str = "AIzaSyCiexVZaLFDJMPF1QR_wtaC5Es1OWtd0IQ"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT: int = 90
 
     # ---- Embedding Models ----
     DENSE_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -85,6 +90,10 @@ class Settings(BaseSettings):
     # ---- Web Crawler (Knowledge Pipeline) ----
     AAUP_BASE_URL: str = "https://www.aaup.edu"
     CRAWLER_DELAY_SECONDS: float = 1.0               # polite delay between requests
+
+    # ---- Frontend / Mobile App ----
+    # يُستخدم في /robot/session لبناء qr_data URL الذي يقرأه التطبيق
+    FRONTEND_URL: str = "mujeeb://robot-login"
 
     @property
     def cors_origins_list(self) -> List[str]:

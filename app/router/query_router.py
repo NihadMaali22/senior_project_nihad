@@ -159,31 +159,72 @@ async def classify_query(question: str) -> dict:
 
 async def _llm_classify(question: str) -> Optional[dict]:
     """
-    Use Ollama LLM to classify the query.
+    Use Gemini API to classify the query (acting as a drop-in replacement for Ollama).
     Returns None if classification fails.
     """
     prompt = CLASSIFICATION_PROMPT.format(question=question)
 
+    # --- Ollama Local LLM (Commented Out) ---
+    # try:
+    #     async with httpx.AsyncClient(timeout=30.0) as client:
+    #         response = await client.post(
+    #             f"{settings.OLLAMA_URL}/api/generate",
+    #             json={
+    #                 "model": settings.OLLAMA_MODEL,
+    #                 "prompt": prompt,
+    #                 "stream": False,
+    #                 "options": {
+    #                     "temperature": 0.1,   # Low temperature for consistent classification
+    #                     "num_predict": 150,    # Short response expected
+    #                 },
+    #             },
+    #         )
+    # 
+    #     if response.status_code != 200:
+    #         logger.warning(f"Ollama returned status {response.status_code}")
+    #         return None
+    # 
+    #     response_text = response.json().get("response", "")
+    # ...
+
+    if not settings.GEMINI_API_KEY:
+        logger.warning("GEMINI_API_KEY is not set. Classification will fallback to keywords.")
+        return None
+
     try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 150
+            }
+        }
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{settings.OLLAMA_URL}/api/generate",
-                json={
-                    "model": settings.OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,   # Low temperature for consistent classification
-                        "num_predict": 150,    # Short response expected
-                    },
-                },
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
             )
 
         if response.status_code != 200:
-            logger.warning(f"Ollama returned status {response.status_code}")
+            logger.warning(f"Gemini API returned status {response.status_code} during classification")
             return None
 
-        response_text = response.json().get("response", "")
+        res_json = response.json()
+        try:
+            response_text = res_json['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError):
+            logger.warning(f"Unexpected Gemini classification response: {res_json}")
+            return None
 
         # Parse the JSON response from the LLM
         parsed = _parse_classification_response(response_text)
@@ -194,10 +235,10 @@ async def _llm_classify(question: str) -> Optional[dict]:
         return None
 
     except httpx.TimeoutException:
-        logger.warning("Ollama classification timed out")
+        logger.warning("Gemini classification timed out")
         return None
     except httpx.ConnectError:
-        logger.warning("Could not connect to Ollama")
+        logger.warning("Could not connect to Gemini API")
         return None
 
 

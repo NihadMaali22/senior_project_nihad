@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Debug: {settings.DEBUG}")
     logger.info(f"  Database: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
     logger.info(f"  Qdrant: {settings.QDRANT_URL}")
-    logger.info(f"  Ollama: {settings.OLLAMA_URL} (model: {settings.OLLAMA_MODEL})")
+    logger.info(f"  Gemini API (model: {settings.GEMINI_MODEL})")
     logger.info(f"  Dense Model: {settings.DENSE_EMBEDDING_MODEL}")
     logger.info("=" * 60)
 
@@ -71,14 +71,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"Database initialization failed: {e}")
         logger.warning("Application starting without database — some features may not work")
 
-    # Startup: Create shared httpx client for Ollama (reused across all requests)
+    # Startup: Create shared httpx client for external APIs (reused across all requests)
     settings_obj = get_settings()
     app.state.http_client = httpx.AsyncClient(
-        base_url=settings_obj.OLLAMA_URL,
-        timeout=float(settings_obj.OLLAMA_TIMEOUT),
+        timeout=float(settings_obj.GEMINI_TIMEOUT),
         limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
     )
-    logger.info(f"Shared HTTP client created for Ollama at {settings_obj.OLLAMA_URL}")
+    logger.info("Shared HTTP client created for external API calls (Gemini)")
 
     yield
 

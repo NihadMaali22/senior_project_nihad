@@ -59,3 +59,23 @@ class TokenPayload(BaseModel):
     role: str
     student_id: Optional[int] = None
     exp: int           # expiration timestamp
+
+
+class StudentProfileResponse(BaseModel):
+    """Profile details of the authenticated student."""
+    student_id: int
+    student_number: str
+    first_name: str
+    last_name: str
+    full_name: str
+    email: str
+    gpa: float
+    total_credits: int
+    registered_credits: int
+    remaining_credits: int
+    status: str
+    academic_standing: str
+    department_name: Optional[str] = None
+    department_code: Optional[str] = None
+    semester: Optional[str] = None
+
