@@ -75,21 +75,38 @@ async def stream_munsit_audio(text: str, voice_id: str, speed: float) -> AsyncGe
         "speed": speed
     }
 
-    # Yield the WAV header first so the browser knows how to decode the stream
-    yield create_wav_header(sample_rate=24000)
+    logger.info(f"Munsit TTS request: text_len={len(text)}, voice={voice_id}, speed={speed}")
 
     try:
         async with httpx.AsyncClient() as client:
-            async with client.stream("POST", url, headers=headers, json=payload, timeout=30.0) as response:
+            async with client.stream("POST", url, headers=headers, json=payload, timeout=60.0) as response:
                 if response.status_code != 200:
                     error_detail = await response.aread()
-                    logger.error(f"Munsit API Error: {response.status_code} - {error_detail}")
-                    return
-                
+                    error_msg = error_detail.decode("utf-8", errors="replace")
+                    logger.error(f"Munsit API Error: {response.status_code} - {error_msg}")
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"Munsit API error: {error_msg}"
+                    )
+
+                # Only yield WAV header AFTER confirming API responded with 200
+                yield create_wav_header(sample_rate=24000)
+
+                chunk_count = 0
                 async for chunk in response.aiter_bytes():
+                    chunk_count += 1
                     yield chunk
+
+                logger.info(f"Munsit TTS completed: {chunk_count} chunks streamed")
+
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except httpx.TimeoutException:
+        logger.error("Munsit API timed out after 60 seconds")
+        raise HTTPException(status_code=504, detail="Munsit API timed out")
     except Exception as e:
-        logger.error(f"Error streaming from Munsit: {e}")
+        logger.error(f"Error streaming from Munsit: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=502, detail=f"Munsit connection error: {str(e)}")
 
 @router.post("", summary="Convert Text to Speech")
 async def generate_speech(request: TTSRequest, current_user: dict = Depends(get_current_user)):

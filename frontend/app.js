@@ -263,14 +263,23 @@ async function speakViaMunsit(text) {
             },
             body: JSON.stringify({ text, voice_id: 'ar-najdi-male-2', speed: 1.0 }),
         });
-        if (!res.ok) return false;
+        if (!res.ok) {
+            const errBody = await res.text();
+            console.error(`Munsit TTS failed: ${res.status}`, errBody);
+            return false;
+        }
         const blob = await res.blob();
+        if (!blob || blob.size < 100) {
+            console.warn('Munsit returned empty or too-small audio blob:', blob?.size);
+            return false;
+        }
         const url  = URL.createObjectURL(blob);
         currentAudio = new Audio(url);
         currentAudio.play();
         currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
         return true;
-    } catch {
+    } catch (e) {
+        console.error('Munsit TTS error:', e);
         return false;
     }
 }
