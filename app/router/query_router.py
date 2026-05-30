@@ -42,11 +42,101 @@ Classify the following student question into EXACTLY ONE of these categories:
 3. **HYBRID** — The question requires BOTH student data AND university policies to make a decision or provide a personalized answer.
    Examples: "Can I register for Internship 2?", "Am I eligible to graduate?", "Why am I on academic probation?", "Can I take course X if I failed Y?"
 
+4. **OFF_TOPIC** — The question is NOT related to academics, university, courses, grades, or student affairs at all.
+   Examples: "How are you?", "What's the weather?", "Tell me a joke", "Who is the president?", "كيف حالك؟", "ما هو الطقس اليوم؟"
+
 Question: "{question}"
 
 Respond with ONLY a JSON object in this exact format:
-{{"category": "SQL_ONLY" | "RAG_ONLY" | "HYBRID", "confidence": 0.0-1.0, "reasoning": "brief explanation"}}
+{{"category": "SQL_ONLY" | "RAG_ONLY" | "HYBRID" | "OFF_TOPIC", "confidence": 0.0-1.0, "reasoning": "brief explanation"}}
 """
+
+
+# ============================================================
+# Academic keyword indicators
+# ============================================================
+# If any of these appear in the question, it is academic even if
+# it also matches an off-topic greeting pattern.
+_ACADEMIC_KEYWORDS_AR = [
+    "معدل", "تراكمي", "مقرر", "مادة", "مواد", "ساعات", "ساعه",
+    "تسجيل", "تخرج", "تدريب", "إنذار", "انذار", "حرمان",
+    "انسحاب", "فصل", "كلية", "جامعة", "دكتور", "بروفيسور",
+    "امتحان", "اختبار", "درجة", "درجات", "علامة", "علامات",
+    "رسوب", "نجاح", "حذف", "إضافة", "جدول", "خطة",
+    "متطلب", "سابق", "لاحق", "مشروع", "بحث", "أكاديمي",
+    "اكاديمي", "سنة", "فصلي", "صيفي", "طالب", "طلاب",
+    "منحة", "قسم", "تخصص", "هندسة", "حاسوب", "برمجة",
+    "لائحة", "لوائح", "نظام", "قانون", "شهادة",
+    "gpa", "credit", "course", "grade", "enroll", "register",
+    "graduat", "internship", "capstone", "prerequisit", "schedule",
+    "withdraw", "probation", "warning", "dismiss", "transcript",
+    "advisor", "department", "faculty", "semester", "academic",
+    "university", "regulation", "policy", "exam",
+]
+
+_ACADEMIC_RE = re.compile(
+    "|".join(re.escape(kw) for kw in _ACADEMIC_KEYWORDS_AR),
+    re.IGNORECASE,
+)
+
+
+def _is_off_topic(question: str) -> bool:
+    """
+    Return True if the question has NO academic relevance.
+    Checks for common small-talk / off-topic patterns in Arabic and English,
+    but only if no academic keyword is present.
+    """
+    q = question.strip()
+
+    # If ANY academic keyword is found, it is NOT off-topic
+    if _ACADEMIC_RE.search(q):
+        return False
+
+    ql = q.lower()
+
+    # Off-topic patterns — greetings, chit-chat, non-academic questions
+    off_topic_patterns = [
+        # Arabic greetings & small-talk
+        r"كيف\s*حالك", r"كيفك", r"شلونك", r"شخبارك", r"اشلونك",
+        r"مرحبا\b", r"هلا\b", r"السلام\s*عليكم", r"صباح\s*الخير",
+        r"مساء\s*الخير", r"اهلا\b", r"هاي\b",
+        r"شو\s*اخبارك", r"كيف\s*الحال", r"عامل\s*ايه",
+        # Arabic off-topic subjects
+        r"الطقس", r"الجو\s*اليوم", r"حالة\s*الطقس",
+        r"نكتة", r"اضحكني", r"قصة", r"اغنية", r"فيلم",
+        r"طبخ", r"وصفة", r"رياضة", r"كرة\s*القدم", r"ماتش",
+        r"سياسة", r"رئيس", r"حرب", r"اخبار",
+        r"من\s*انت", r"ما\s*اسمك", r"عمرك", r"وين\s*ساكن",
+        r"بحبك", r"حبيبي",
+        # English greetings & small-talk
+        r"\bhow are you\b", r"\bhow.?s it going\b", r"\bwhat.?s up\b",
+        r"\bhello\b", r"\bhey\b", r"\bhi there\b",
+        r"\bgood morning\b", r"\bgood evening\b",
+        # English off-topic subjects
+        r"\bweather\b", r"\bjoke\b", r"\btell me a\b",
+        r"\bwho is the president\b", r"\bwho are you\b",
+        r"\bwhat.?s your name\b", r"\bhow old are you\b",
+        r"\bfootball\b", r"\bsoccer\b", r"\bcook\b", r"\brecipe\b",
+        r"\bsing\b", r"\bsong\b", r"\bmovie\b", r"\bgame\b",
+        r"\bpolitics\b", r"\bnews\b", r"\bwar\b",
+        r"\bi love you\b", r"\bfavorite\b",
+    ]
+
+    for pattern in off_topic_patterns:
+        if re.search(pattern, ql):
+            return True
+
+    # Very short queries with no academic keywords are likely off-topic
+    if len(ql) < 12 and not _ACADEMIC_RE.search(q):
+        # Check if it's a bare greeting
+        bare_greetings = {
+            "هلا", "مرحبا", "اهلا", "هاي", "يو", "hi", "hey",
+            "hello", "yo", "sup", "مساء الخير", "صباح الخير",
+        }
+        if ql in bare_greetings:
+            return True
+
+    return False
 
 
 def _keyword_classify(question: str) -> QueryType:
@@ -55,6 +145,10 @@ def _keyword_classify(question: str) -> QueryType:
     Uses pattern matching to determine query type.
     """
     q = question.lower().strip()
+
+    # ── Off-topic check (first!) ──────────────────────────────
+    if _is_off_topic(question):
+        return QueryType.OFF_TOPIC
 
     # SQL-only patterns — pure data lookups
     sql_patterns = [
@@ -71,6 +165,14 @@ def _keyword_classify(question: str) -> QueryType:
         r"\bmy profile\b",
         r"\bshow me my\b",
         r"\blist my\b",
+        # Arabic
+        r"معدلي", r"المعدل التراكمي",
+        r"علاماتي", r"درجاتي",
+        r"جدولي", r"المواد.*منزلها", r"المواد.*مسجلها", r"المواد المسجلة", r"شو منزل", r"منزلها", r"مسجلها",
+        r"المواد.*أكملتها", r"المواد.*المكتملة", r"المواد.*نجحت",
+        r"المواد.*الراسبة", r"المواد.*رسبت",
+        r"الإنذار", r"الإنذارات",
+        r"ملفي الأكاديمي", r"بياناتي", r"معلوماتي"
     ]
 
     # RAG-only patterns — policy/regulation lookups
@@ -87,6 +189,8 @@ def _keyword_classify(question: str) -> QueryType:
         r"\bwhat is\b.*\bprocedure\b",
         r"\bhow does\b.*\bwork\b",
         r"\bexplain\b.*\bpolicy\b",
+        # Arabic
+        r"سياسة الانسحاب", r"قوانين الجامعة", r"لوائح", r"تعليمات", r"نظام الجامعة", r"قانون الجامعة"
     ]
 
     # Hybrid patterns — decision-making questions
@@ -105,6 +209,10 @@ def _keyword_classify(question: str) -> QueryType:
         r"\bcapstone\b",
         r"\bwhat do i need to\b",
         r"\bdo i meet\b.*\brequirements\b",
+        # Arabic
+        r"هل يمكنني", r"هل أستطيع", r"هل يحق لي", r"هل بقدر", r"بقدر أسجل", r"أقدر أسجل", r"تسجيل مادة",
+        r"هل سأتخرج", r"متى أتخرج", r"شروط التخرج", r"متطلبات التخرج",
+        r"التدريب الميداني", r"مشروع التخرج"
     ]
 
     # Check hybrid first (most specific)
@@ -265,6 +373,7 @@ def _parse_classification_response(response_text: str) -> Optional[dict]:
         "SQL_ONLY": QueryType.SQL_ONLY,
         "RAG_ONLY": QueryType.RAG_ONLY,
         "HYBRID": QueryType.HYBRID,
+        "OFF_TOPIC": QueryType.OFF_TOPIC,
     }
 
     query_type = type_map.get(category)

@@ -93,6 +93,58 @@ def get_retrieval_pipeline() -> Pipeline:
     return _retrieval_pipeline
 
 
+async def translate_query_if_arabic(query: str) -> str:
+    """Translate the query to English if it contains Arabic characters."""
+    if not any(u'\u0600' <= char <= u'\u06FF' for char in query):
+        return query
+
+    if not settings.GEMINI_API_KEY:
+        return query
+
+    try:
+        import httpx
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        prompt = (
+            f"Translate the following Arabic academic question from a student into clear English "
+            f"suitable for search/retrieval of academic regulations. Return ONLY the English translation, "
+            f"nothing else. Do not include quotes.\n\n"
+            f"Question: {query}"
+        )
+
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 100
+            }
+        }
+        
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            
+        if response.status_code == 200:
+            res_json = response.json()
+            translation = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            translation = translation.strip('"\'')
+            logger.info(f"Translated query for retrieval: '{query}' -> '{translation}'")
+            return translation
+    except Exception as e:
+        logger.warning(f"Failed to translate query for retrieval: {e}")
+    
+    return query
+
+
 def _sync_retrieve(pipeline: Pipeline, query: str) -> List[Document]:
     """Run the retrieval pipeline synchronously (called from thread pool)."""
     result = pipeline.run({
@@ -119,10 +171,13 @@ async def retrieve_documents(
     """
     pipeline = get_retrieval_pipeline()
 
-    logger.info(f"Retrieving documents for query: '{query[:80]}...'")
+    # Translate query to English if it is in Arabic
+    search_query = await translate_query_if_arabic(query)
+
+    logger.info(f"Retrieving documents for query: '{search_query[:80]}...' (original: '{query[:80]}')")
 
     try:
-        documents = await asyncio.to_thread(_sync_retrieve, pipeline, query)
+        documents = await asyncio.to_thread(_sync_retrieve, pipeline, search_query)
 
         # Apply custom top_k if specified
         if top_k and len(documents) > top_k:

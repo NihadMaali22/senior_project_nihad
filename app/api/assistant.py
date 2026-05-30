@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.middleware import get_current_user, get_optional_user
 from app.auth.schemas import TokenPayload
-from app.db.schemas import AskRequest, AskResponse
+from app.db.schemas import AskRequest, AskResponse, QueryType
 from app.decision.engine import process_query, process_query_stream
 from app.dependencies import get_db_session
 from app.router.query_router import classify_query
@@ -84,6 +84,18 @@ async def ask_question(
         f"method={classification.get('method', 'N/A')}"
     )
 
+    # Step 1.5: Reject off-topic questions immediately
+    if query_type == QueryType.OFF_TOPIC:
+        logger.info(f"[OFF_TOPIC] Rejected: '{request.question[:60]}'")
+        return AskResponse(
+            answer=(
+                "عذراً، أنا مخصص فقط للإجابة على الأسئلة الأكاديمية والجامعية. "
+                "يمكنك سؤالي عن المعدل التراكمي، التسجيل، المواد، التخرج، اللوائح الجامعية، وغيرها من الشؤون الأكاديمية. 🎓"
+            ),
+            query_type=query_type,
+            session_id=session_id,
+        )
+
     # Step 2: Process through Decision Engine
     response = await process_query(
         question=request.question,
@@ -134,6 +146,30 @@ async def ask_question_stream(
         f"[STREAM] type={query_type.value}, "
         f"confidence={classification.get('confidence', 'N/A')}"
     )
+
+    # Reject off-topic questions immediately (no streaming needed)
+    if query_type == QueryType.OFF_TOPIC:
+        logger.info(f"[OFF_TOPIC] Rejected (stream): '{request.question[:60]}'")
+        import json as _json
+
+        off_topic_answer = (
+            "عذراً، أنا مخصص فقط للإجابة على الأسئلة الأكاديمية والجامعية. "
+            "يمكنك سؤالي عن المعدل التراكمي، التسجيل، المواد، التخرج، اللوائح الجامعية، وغيرها من الشؤون الأكاديمية. 🎓"
+        )
+
+        async def _off_topic_stream():
+            # Send the answer as a single metadata event
+            yield f"event: metadata\ndata: {_json.dumps({'answer': off_topic_answer, 'query_type': 'OFF_TOPIC', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            _off_topic_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     # Return streaming response
     generator = process_query_stream(

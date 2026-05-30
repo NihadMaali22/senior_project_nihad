@@ -285,8 +285,8 @@ html, body {
     color: var(--text-main);
 }
 .quick-btn.admin {
-    border-color: rgba(248, 113, 113, 0.4);
-    color: #fca5a5;
+    border-color: rgba(220, 38, 38, 0.4);
+    color: var(--error);
 }
 .quick-btn.admin:hover {
     background: rgba(248, 113, 113, 0.15);
@@ -656,7 +656,7 @@ details.collapsible li { margin-bottom: 5px; color: var(--text-muted); font-size
     border-inline-start: 3px solid var(--primary);
     padding: 8px 12px;
     margin-top: 8px;
-    background: rgba(141, 28, 49, 0.08);
+    background: rgba(30, 41, 101, 0.06);
     border-radius: 0 8px 8px 0;
     font-size: 13px;
 }
@@ -696,21 +696,25 @@ details.collapsible li { margin-bottom: 5px; color: var(--text-muted); font-size
     gap: 8px;
 }
 .suggestion-chip {
-    padding: 7px 14px;
+    padding: 9px 18px;
     background: #ffffff;
-    border: 1px solid var(--panel-border);
-    border-radius: 20px;
-    color: var(--text-muted);
+    border: 1.5px solid rgba(30, 41, 101, 0.35);
+    border-radius: 22px;
+    color: var(--primary);
     font-size: 13px;
+    font-weight: 500;
     font-family: inherit;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.25s ease;
     white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(30, 41, 101, 0.08);
 }
 .suggestion-chip:hover {
-    background: rgba(141, 28, 49, 0.20);
+    background: var(--primary);
     border-color: var(--primary);
-    color: var(--text-main);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(30, 41, 101, 0.2);
+    transform: translateY(-1px);
 }
 
 /* ── Input bar ────────────────────────────────────────────── */

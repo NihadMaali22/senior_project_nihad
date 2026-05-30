@@ -7,12 +7,12 @@ const API_BASE = window.API_BASE || "http://localhost:8000/api/v1";
 // ── i18n strings ──────────────────────────────────────────────
 const STRINGS = {
     ar: {
-        brandTitle:      "المساعد الأكاديمي",
+        brandTitle:      "مجيب",
         brandSub:        "مرشدك الجامعي الذكي",
         usernamePH:      "اسم المستخدم",
         passwordPH:      "كلمة المرور",
         loginBtn:        "تسجيل الدخول",
-        headerTitle:     "المساعد الأكاديمي",
+        headerTitle:     "مجيب",
         onlineStatus:    "متصل",
         chatPH:          "اسأل عن اللوائح، المعدل، التدريب...",
         langLabel:       "EN",
@@ -35,12 +35,12 @@ const STRINGS = {
         },
     },
     en: {
-        brandTitle:      "Academic Assistant",
+        brandTitle:      "Mujeeb",
         brandSub:        "Your smart university guide",
         usernamePH:      "Username",
         passwordPH:      "Password",
         loginBtn:        "Sign In",
-        headerTitle:     "Academic Assistant",
+        headerTitle:     "Mujeeb",
         onlineStatus:    "Online",
         chatPH:          "Ask about GPA, graduation, registration policy...",
         langLabel:       "عربي",
@@ -392,28 +392,6 @@ function formatMetadataHtml(data) {
     if (data.decision && data.decision !== 'INFO') {
         const label = t('decisionLabels')[data.decision] || data.decision;
         html += `<div class="decision-badge decision-${data.decision}">${label}</div>`;
-    }
-
-    // Reasoning (collapsible, open by default)
-    if (data.reasoning?.length) {
-        html += `<details class="collapsible" open>
-            <summary>${t('reasoning')}</summary><ul>`;
-        data.reasoning.forEach(r => { html += `<li>${escHtml(r)}</li>`; });
-        html += `</ul></details>`;
-    }
-
-    // Citations (collapsible, closed by default)
-    if (data.citations?.length) {
-        html += `<details class="collapsible">
-            <summary>${t('sources')} (${data.citations.length})</summary>`;
-        data.citations.forEach(c => {
-            html += `<div class="citation-box">
-                <strong>${escHtml(c.source || '')}</strong>
-                ${c.section ? `<em> — ${escHtml(c.section)}</em>` : ''}
-                <p>${escHtml(c.text || '')}</p>
-            </div>`;
-        });
-        html += `</details>`;
     }
 
     // Confidence bar

@@ -44,6 +44,7 @@ class QueryType(str, Enum):
     SQL_ONLY = "SQL_ONLY"
     RAG_ONLY = "RAG_ONLY"
     HYBRID = "HYBRID"
+    OFF_TOPIC = "OFF_TOPIC"
 
 
 class DecisionOutcome(str, Enum):

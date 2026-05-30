@@ -271,6 +271,11 @@ async def _handle_hybrid_query(
         _student_data["completed_courses"] = completed
         _student_data["completed_course_codes"] = [c["course_code"] for c in completed]
 
+        # Get current enrollments
+        current_enrollments = await queries.get_current_enrollments(session, student_id)
+        _student_data["current_enrollments"] = current_enrollments
+        _student_data["current_enrollment_codes"] = [c["course_code"] for c in current_enrollments]
+
         # Check if question involves a specific course
         course_code = extract_course_code(question)
         if course_code:
@@ -318,13 +323,17 @@ async def _handle_hybrid_query(
 
     # Step 4: Compose the full decision prompt
     student_data_str = json.dumps(
-        {k: v for k, v in student_data.items() if k != "completed_courses"},
+        {k: v for k, v in student_data.items() if k not in ["completed_courses", "current_enrollments"]},
         indent=2,
         default=str,
     )
     # Add a summary of completed courses instead of full list
     completed_summary = ", ".join(student_data.get("completed_course_codes", []))
     student_data_str += f"\n\nCompleted Courses: {completed_summary}"
+    
+    # Add a summary of currently registered courses
+    current_summary = ", ".join(student_data.get("current_enrollment_codes", []))
+    student_data_str += f"\nCurrently Registered/Enrolled Courses: {current_summary}"
 
     prompt = DECISION_PROMPT.format(
         student_data=student_data_str,
@@ -757,7 +766,7 @@ def _parse_decision_response(response: str) -> Dict[str, Any]:
     """
     Parse the LLM's structured decision response.
 
-    Expected format:
+    Expected format (supports both English and Arabic labels):
     DECISION: [APPROVED/DENIED/CONDITIONAL/INFO]
     REASONING: [numbered list]
     ANSWER: [full answer]
@@ -771,31 +780,33 @@ def _parse_decision_response(response: str) -> Dict[str, Any]:
 
     # Extract DECISION
     decision_match = re.search(
-        r"DECISION:\s*(APPROVED|DENIED|CONDITIONAL|INFO)",
+        r"(?:DECISION|القرار|القرار\s+النهائي):\s*(APPROVED|DENIED|CONDITIONAL|INFO|موافق|مقبول|تمت\s+الموافقة|مرفوض|تم\s+الرفض|مشروط|موافقة\s+مشروطة|معلومات|توضيح)",
         response,
         re.IGNORECASE,
     )
     if decision_match:
-        decision_str = decision_match.group(1).upper()
-        try:
-            result["decision"] = DecisionOutcome(decision_str)
-        except ValueError:
+        val = decision_match.group(1).upper().strip()
+        if val in ["APPROVED", "موافق", "مقبول", "تمت الموافقة"]:
+            result["decision"] = DecisionOutcome.APPROVED
+        elif val in ["DENIED", "مرفوض", "تم الرفض"]:
+            result["decision"] = DecisionOutcome.DENIED
+        elif val in ["CONDITIONAL", "مشروط", "موافقة مشروطة"]:
+            result["decision"] = DecisionOutcome.CONDITIONAL
+        else:
             result["decision"] = DecisionOutcome.INFO
 
     # Extract REASONING
     reasoning_match = re.search(
-        r"REASONING:\s*\n(.*?)(?=\nANSWER:|\nCITATIONS:|\Z)",
+        r"(?:REASONING|الأسباب|التعليل|التبرير|الحيثيات):\s*\n(.*?)(?=\n(?:ANSWER|RESPONSE|الإجابة|الرد|الجواب|الرد\s+المباشر|الرد\s+النهائي|CITATIONS|SOURCES|المصادر|المراجع|الاقتباسات):|\Z)",
         response,
         re.DOTALL | re.IGNORECASE,
     )
     if reasoning_match:
         reasoning_text = reasoning_match.group(1).strip()
-        # Parse numbered list items
         lines = reasoning_text.split("\n")
         for line in lines:
             line = line.strip()
             if line and not line.startswith("---"):
-                # Remove leading numbers like "1." or "- "
                 cleaned = re.sub(r"^\d+[\.\)]\s*", "", line)
                 cleaned = re.sub(r"^[-•]\s*", "", cleaned)
                 if cleaned:
@@ -803,7 +814,7 @@ def _parse_decision_response(response: str) -> Dict[str, Any]:
 
     # Extract ANSWER
     answer_match = re.search(
-        r"ANSWER:\s*\n(.*?)(?=\nCITATIONS:|\Z)",
+        r"(?:ANSWER|RESPONSE|الإجابة|الرد|الجواب|الرد\s+المباشر|الرد\s+النهائي):\s*\n(.*?)(?=\n(?:CITATIONS|SOURCES|المصادر|المراجع|الاقتباسات):|\Z)",
         response,
         re.DOTALL | re.IGNORECASE,
     )
@@ -987,18 +998,74 @@ async def process_query_stream(
 
         # Stream LLM tokens
         full_response = ""
-        async for token in _call_ollama_stream(prompt):
-            # _call_ollama_stream yields the full fallback string as one token when
-            # Ollama is down — intercept it and replace with structured data answer.
-            if _ollama_unavailable(token):
+
+        async def _filtered_token_generator():
+            nonlocal full_response
+            buffer = ""
+            in_answer = 0  # 0: before answer, 1: inside answer, 2: after answer (citations)
+            import re
+
+            answer_pat = re.compile(
+                r"(?:ANSWER|RESPONSE|الإجابة|الرد|الجواب|الرد\s+المباشر|الرد\s+النهائي):\s*",
+                re.IGNORECASE
+            )
+            citation_pat = re.compile(
+                r"(?:CITATIONS|SOURCES|المصادر|المراجع|الاقتباسات):\s*",
+                re.IGNORECASE
+            )
+            full_accumulated = ""
+
+            async for token in _call_ollama_stream(prompt):
+                if _ollama_unavailable(token):
+                    if query_type == QueryType.HYBRID:
+                        token = _build_no_llm_answer(rule_checks, student_data, documents or [])
+                    elif query_type == QueryType.RAG_ONLY:
+                        token = _format_rag_fallback(documents or [])
+                    else:  # SQL_ONLY
+                        token = _format_sql_fallback({"data": student_data})
+
+                full_response += token
+                full_accumulated += token
+                buffer += token
+
                 if query_type == QueryType.HYBRID:
-                    token = _build_no_llm_answer(rule_checks, student_data, documents or [])
-                elif query_type == QueryType.RAG_ONLY:
-                    token = _format_rag_fallback(documents or [])
-                else:  # SQL_ONLY
-                    token = _format_sql_fallback({"data": student_data})
-            full_response += token
-            # SSE format: each event is "event: type\ndata: content\n\n"
+                    if in_answer == 0:
+                        match = answer_pat.search(buffer)
+                        if match:
+                            in_answer = 1
+                            start_idx = match.end()
+                            remaining = buffer[start_idx:]
+                            if remaining:
+                                yield remaining
+                            buffer = ""
+                    elif in_answer == 1:
+                        match = citation_pat.search(buffer)
+                        if match:
+                            in_answer = 2
+                            end_idx = match.start()
+                            clean_text = buffer[:end_idx]
+                            if clean_text:
+                                yield clean_text
+                            buffer = ""
+                        else:
+                            if len(buffer) > 50:
+                                safe_len = len(buffer) - 30
+                                yield buffer[:safe_len]
+                                buffer = buffer[safe_len:]
+                else:
+                    yield token
+
+            if query_type == QueryType.HYBRID:
+                if in_answer == 0:
+                    yield full_accumulated
+                elif in_answer == 1 and buffer:
+                    match = citation_pat.search(buffer)
+                    if match:
+                        buffer = buffer[:match.start()]
+                    if buffer:
+                        yield buffer
+
+        async for token in _filtered_token_generator():
             yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
 
         # Build metadata
