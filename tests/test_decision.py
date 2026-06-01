@@ -110,3 +110,43 @@ class TestPrerequisiteResults:
             "prerequisites": [],
         })
         assert result["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_rewrite_follow_up_query_no_context():
+    from app.decision.engine import rewrite_follow_up_query
+    # If context is empty, should return the question as-is immediately without LLM call
+    question = "هل يمكنني تسجيله؟"
+    result = await rewrite_follow_up_query(question, "")
+    assert result == question
+
+
+@pytest.mark.asyncio
+async def test_rewrite_follow_up_query_with_rewrite():
+    from unittest.mock import AsyncMock, patch
+    from app.decision.engine import rewrite_follow_up_query
+    
+    with patch("app.decision.engine._call_ollama", new_callable=AsyncMock) as mock_call_ollama:
+        mock_call_ollama.return_value = "هل يمكن للطالب تسجيل مساق التدريب العملي؟"
+        question = "هل يمكنني تسجيله؟"
+        context = "Student: ما هي شروط تسجيل مساق التدريب العملي؟\nAdvisor: شروط مساق التدريب العملي هي إنهاء 90 ساعة معتمدة."
+        
+        result = await rewrite_follow_up_query(question, context)
+        
+        assert result == "هل يمكن للطالب تسجيل مساق التدريب العملي؟"
+        mock_call_ollama.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_rewrite_follow_up_query_fallback():
+    from unittest.mock import AsyncMock, patch
+    from app.decision.engine import rewrite_follow_up_query
+    
+    with patch("app.decision.engine._call_ollama", new_callable=AsyncMock) as mock_call_ollama:
+        # If LLM call fails (e.g. returns fallback error), should return the original question
+        mock_call_ollama.return_value = "⚠️ LLM is currently unavailable."
+        question = "هل يمكنني تسجيله؟"
+        context = "Student: ما هي شروط تسجيل مساق التدريب العملي؟"
+        
+        result = await rewrite_follow_up_query(question, context)
+        assert result == question

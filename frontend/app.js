@@ -2,7 +2,7 @@
 // Academic Assistant — Frontend App
 // ============================================================
 
-const API_BASE = window.API_BASE || "http://localhost:8000/api/v1";
+const API_BASE = window.API_BASE || "/api/v1";
 
 // ── i18n strings ──────────────────────────────────────────────
 const STRINGS = {
@@ -127,6 +127,7 @@ function updateUIText() {
     setPlaceholder('username',        s.usernamePH);
     setPlaceholder('password',        s.passwordPH);
     setPlaceholder('question-input',  s.chatPH);
+    setText('quick-label', currentLang === 'ar' ? 'دخول سريع:' : 'Quick login:');
 }
 
 function setText(id, val) {
@@ -612,14 +613,6 @@ document.querySelectorAll('.quick-btn').forEach(btn => {
         loginForm.dispatchEvent(new Event('submit'));
     });
 });
-
-// ── i18n: add quick-label to updateUIText ────────────────────
-// (called inside setLanguage, extends existing updateUIText)
-const _origUpdateUIText = updateUIText;
-function updateUIText() {
-    _origUpdateUIText();
-    setText('quick-label', currentLang === 'ar' ? 'دخول سريع:' : 'Quick login:');
-}
 
 // ── Initialise ────────────────────────────────────────────────
 setLanguage(currentLang);

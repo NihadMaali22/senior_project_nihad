@@ -18,8 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.middleware import get_current_user, get_optional_user
 from app.auth.schemas import TokenPayload
 from app.db.schemas import AskRequest, AskResponse, QueryType
-from app.decision.engine import process_query, process_query_stream
+from app.decision.engine import process_query, process_query_stream, rewrite_follow_up_query
 from app.dependencies import get_db_session
+from app.memory.conversation import get_conversation_context, get_session_count
 from app.router.query_router import classify_query
 
 logger = logging.getLogger(__name__)
@@ -69,13 +70,26 @@ async def ask_question(
     # Generate session_id if not provided (for conversation continuity)
     session_id = request.session_id or str(uuid.uuid4())
 
+    # Step 0.5: Check for conversation memory and rewrite follow-up questions
+    search_question = request.question
+    if request.session_id:
+        try:
+            msg_count = await get_session_count(session, session_id)
+            if msg_count > 0:
+                context = await get_conversation_context(session, session_id)
+                if context:
+                    search_question = await rewrite_follow_up_query(request.question, context)
+        except Exception as e:
+            logger.error(f"Error getting conversation history/rewriting query: {e}", exc_info=True)
+
     logger.info(
         f"[ASK] question='{request.question[:60]}...', "
+        f"rewritten='{search_question[:60]}...', "
         f"student_id={student_id}, user_id={user_id}, session={session_id}"
     )
 
-    # Step 1: Classify the query
-    classification = await classify_query(request.question)
+    # Step 1: Classify the query using search_question
+    classification = await classify_query(search_question)
     query_type = classification["query_type"]
 
     logger.info(
@@ -87,6 +101,7 @@ async def ask_question(
     # Step 1.5: Reject off-topic questions immediately
     if query_type == QueryType.OFF_TOPIC:
         logger.info(f"[OFF_TOPIC] Rejected: '{request.question[:60]}'")
+        from app.db.schemas import AskResponse  # import locally if needed, but it is imported globally now (or wait, we removed it from global imports so let's import it locally/globally)
         return AskResponse(
             answer=(
                 "عذراً، أنا مخصص فقط للإجابة على الأسئلة الأكاديمية والجامعية. "
@@ -104,6 +119,7 @@ async def ask_question(
         session=session,
         session_id=session_id,
         user_id=user_id,
+        search_question=search_question,
     )
 
     return response
@@ -138,13 +154,26 @@ async def ask_question_stream(
 
     session_id = request.session_id or str(uuid.uuid4())
 
-    # Classify the query
-    classification = await classify_query(request.question)
+    # Check for conversation memory and rewrite follow-up questions
+    search_question = request.question
+    if request.session_id:
+        try:
+            msg_count = await get_session_count(session, session_id)
+            if msg_count > 0:
+                context = await get_conversation_context(session, session_id)
+                if context:
+                    search_question = await rewrite_follow_up_query(request.question, context)
+        except Exception as e:
+            logger.error(f"Error getting conversation history/rewriting query in stream: {e}", exc_info=True)
+
+    # Classify the query using search_question
+    classification = await classify_query(search_question)
     query_type = classification["query_type"]
 
     logger.info(
         f"[STREAM] type={query_type.value}, "
-        f"confidence={classification.get('confidence', 'N/A')}"
+        f"confidence={classification.get('confidence', 'N/A')}, "
+        f"rewritten='{search_question[:60]}...'"
     )
 
     # Reject off-topic questions immediately (no streaming needed)
@@ -179,6 +208,7 @@ async def ask_question_stream(
         session=session,
         session_id=session_id,
         user_id=user_id,
+        search_question=search_question,
     )
 
     return StreamingResponse(

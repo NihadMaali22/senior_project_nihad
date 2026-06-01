@@ -72,6 +72,57 @@ def _get_http_client() -> httpx.AsyncClient:
     return _fallback_http_client
 
 
+async def rewrite_follow_up_query(
+    question: str,
+    conversation_context: str,
+) -> str:
+    """
+    Rewrite a follow-up question into a standalone question using conversation context.
+    If the question is already standalone or on error, returns the original question.
+    """
+    if not conversation_context.strip():
+        return question
+
+    prompt = f"""You are an AI assistant helping to rewrite a student's follow-up question into a single standalone question, using the conversation history for context.
+
+Analyze the conversation history and the new question.
+If the new question is a follow-up that references previous context (e.g., using pronouns, referencing a course or topic mentioned earlier), rewrite it into a complete, standalone question in the same language.
+If the new question is already a complete, standalone question, or if there is no context to resolve, return the new question exactly as-is.
+
+DO NOT add any conversational text, explanations, or labels. Return ONLY the rewritten question.
+
+=== CONVERSATION HISTORY ===
+{conversation_context}
+
+=== NEW QUESTION ===
+{question}
+
+Standalone Question:"""
+
+    try:
+        rewritten = await _call_ollama(prompt)
+        rewritten = rewritten.strip()
+        
+        # Clean up any potential quotes
+        if rewritten.startswith('"') and rewritten.endswith('"'):
+            rewritten = rewritten[1:-1].strip()
+        elif rewritten.startswith("'") and rewritten.endswith("'"):
+            rewritten = rewritten[1:-1].strip()
+        
+        # Remove labels if any
+        for label in ["Standalone Question:", "Question:", "السؤال المستقل:", "السؤال:"]:
+            if rewritten.lower().startswith(label.lower()):
+                rewritten = rewritten[len(label):].strip()
+
+        if not rewritten or _ollama_unavailable(rewritten):
+            return question
+
+        logger.info(f"[REWRITER] original='{question}' -> rewritten='{rewritten}'")
+        return rewritten
+    except Exception as e:
+        logger.error(f"Error in rewrite_follow_up_query: {e}", exc_info=True)
+        return question
+
 
 async def process_query(
     question: str,
@@ -80,6 +131,7 @@ async def process_query(
     session: AsyncSession,
     session_id: Optional[str] = None,
     user_id: Optional[int] = None,
+    search_question: Optional[str] = None,
 ) -> AskResponse:
     """
     Main entry point for the Decision Engine.
@@ -113,15 +165,15 @@ async def process_query(
     try:
         if query_type == QueryType.SQL_ONLY:
             response = await _handle_sql_query(
-                question, student_id, session, conversation_history
+                question, student_id, session, conversation_history, search_question=search_question
             )
         elif query_type == QueryType.RAG_ONLY:
             response = await _handle_rag_query(
-                question, conversation_history
+                question, conversation_history, search_question=search_question
             )
         elif query_type == QueryType.HYBRID:
             response = await _handle_hybrid_query(
-                question, student_id, session, conversation_history
+                question, student_id, session, conversation_history, search_question=search_question
             )
         else:
             response = AskResponse(
@@ -157,17 +209,19 @@ async def _handle_sql_query(
     student_id: Optional[int],
     session: AsyncSession,
     conversation_history: str,
+    search_question: Optional[str] = None,
 ) -> AskResponse:
     """Handle pure SQL data lookup questions."""
+    query_to_use = search_question or question
     # Execute SQL query
-    sql_result = await execute_sql_query(session, question, student_id)
+    sql_result = await execute_sql_query(session, query_to_use, student_id)
 
     student_data_str = json.dumps(sql_result.get("data", {}), indent=2, default=str)
 
     # Generate natural language response via LLM
     prompt = SQL_RESPONSE_PROMPT.format(
         student_data=student_data_str,
-        question=question,
+        question=query_to_use,
         conversation_history=conversation_history or "No previous conversation.",
     )
 
@@ -192,10 +246,12 @@ async def _handle_sql_query(
 async def _handle_rag_query(
     question: str,
     conversation_history: str,
+    search_question: Optional[str] = None,
 ) -> AskResponse:
     """Handle pure regulation/policy lookup questions."""
+    query_to_use = search_question or question
     # Retrieve relevant documents
-    documents = await retrieve_documents(question)
+    documents = await retrieve_documents(query_to_use)
 
     if not documents:
         return AskResponse(
@@ -210,7 +266,7 @@ async def _handle_rag_query(
     # Generate response
     prompt = RAG_RESPONSE_PROMPT.format(
         regulations=regulations_context,
-        question=question,
+        question=query_to_use,
         conversation_history=conversation_history or "No previous conversation.",
     )
 
@@ -239,6 +295,7 @@ async def _handle_hybrid_query(
     student_id: Optional[int],
     session: AsyncSession,
     conversation_history: str,
+    search_question: Optional[str] = None,
 ) -> AskResponse:
     """
     Handle hybrid decision-making questions that require both
@@ -252,6 +309,8 @@ async def _handle_hybrid_query(
     5. LLM generates reasoned decision
     6. Parse response into structured output
     """
+    query_to_use = search_question or question
+
     # Step 1 & 2: Run SQL queries and RAG retrieval IN PARALLEL
     async def _fetch_student_data():
         """Fetch all student data from SQL."""
@@ -277,7 +336,7 @@ async def _handle_hybrid_query(
         _student_data["current_enrollment_codes"] = [c["course_code"] for c in current_enrollments]
 
         # Check if question involves a specific course
-        course_code = extract_course_code(question)
+        course_code = extract_course_code(query_to_use)
         if course_code:
             course_info = await queries.get_course_info(session, course_code)
             _prereq_data = await queries.check_prerequisites_met(session, student_id, course_code)
@@ -287,7 +346,7 @@ async def _handle_hybrid_query(
             _student_data["eligibility_check"] = _eligibility_data
 
         # Check for graduation-related questions
-        q_lower = question.lower()
+        q_lower = query_to_use.lower()
         _grad_kws = [
             "graduat", "degree", "requirements", "hours",
             "left", "remain", "missing", "needed", "finish", "complet",
@@ -306,7 +365,7 @@ async def _handle_hybrid_query(
     # Run SQL and RAG in parallel using asyncio.gather
     (student_data, prereq_data, eligibility_data, grad_data), documents = await asyncio.gather(
         _fetch_student_data(),
-        retrieve_documents(question),
+        retrieve_documents(query_to_use),
     )
 
     regulations_context = format_context_for_llm(documents)
@@ -339,7 +398,7 @@ async def _handle_hybrid_query(
         student_data=student_data_str,
         regulations=regulations_context,
         rule_checks=rule_checks_str,
-        question=question,
+        question=query_to_use,
         conversation_history=conversation_history or "No previous conversation.",
     )
 
@@ -859,6 +918,7 @@ async def _build_prompt_for_query(
     student_id: Optional[int],
     session: AsyncSession,
     conversation_history: str,
+    search_question: Optional[str] = None,
 ) -> tuple:
     """
     Build the LLM prompt and collect metadata for a query.
@@ -867,23 +927,24 @@ async def _build_prompt_for_query(
     documents = []
     rule_checks = []
     student_data = {}
+    query_to_use = search_question or question
 
     if query_type == QueryType.SQL_ONLY:
-        sql_result = await execute_sql_query(session, question, student_id)
+        sql_result = await execute_sql_query(session, query_to_use, student_id)
         student_data_str = json.dumps(sql_result.get("data", {}), indent=2, default=str)
         prompt = SQL_RESPONSE_PROMPT.format(
             student_data=student_data_str,
-            question=question,
+            question=query_to_use,
             conversation_history=conversation_history or "No previous conversation.",
         )
         student_data = sql_result.get("data", {})
 
     elif query_type == QueryType.RAG_ONLY:
-        documents = await retrieve_documents(question)
+        documents = await retrieve_documents(query_to_use)
         regulations_context = format_context_for_llm(documents)
         prompt = RAG_RESPONSE_PROMPT.format(
             regulations=regulations_context,
-            question=question,
+            question=query_to_use,
             conversation_history=conversation_history or "No previous conversation.",
         )
 
@@ -902,7 +963,7 @@ async def _build_prompt_for_query(
             _sd["completed_courses"] = completed
             _sd["completed_course_codes"] = [c["course_code"] for c in completed]
 
-            course_code = extract_course_code(question)
+            course_code = extract_course_code(query_to_use)
             if course_code:
                 course_info = await q.get_course_info(session, course_code)
                 _prereq = await q.check_prerequisites_met(session, student_id, course_code)
@@ -911,7 +972,7 @@ async def _build_prompt_for_query(
                 _sd["prerequisite_check"] = _prereq
                 _sd["eligibility_check"] = _elig
 
-            q_lower = question.lower()
+            q_lower = query_to_use.lower()
             _grad_kws = [
                 "graduat", "degree", "requirements", "hours",
                 "left", "remain", "missing", "needed", "finish", "complet",
@@ -927,7 +988,7 @@ async def _build_prompt_for_query(
 
         (student_data_raw, prereq_data, _, grad_data), documents = await asyncio.gather(
             _fetch_student_data_stream(),
-            retrieve_documents(question),
+            retrieve_documents(query_to_use),
         )
         student_data = student_data_raw
         regulations_context = format_context_for_llm(documents)
@@ -953,7 +1014,7 @@ async def _build_prompt_for_query(
             student_data=student_data_str,
             regulations=regulations_context,
             rule_checks=rule_checks_str,
-            question=question,
+            question=query_to_use,
             conversation_history=conversation_history or "No previous conversation.",
         )
 
@@ -967,6 +1028,7 @@ async def process_query_stream(
     session: AsyncSession,
     session_id: Optional[str] = None,
     user_id: Optional[int] = None,
+    search_question: Optional[str] = None,
 ):
     """
     Stream the LLM response as Server-Sent Events (SSE).
@@ -993,7 +1055,7 @@ async def process_query_stream(
     try:
         # Build prompt and collect metadata (SQL + RAG run in parallel for HYBRID)
         prompt, documents, rule_checks, student_data = await _build_prompt_for_query(
-            question, query_type, student_id, session, conversation_history
+            question, query_type, student_id, session, conversation_history, search_question=search_question
         )
 
         # Stream LLM tokens
