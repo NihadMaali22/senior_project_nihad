@@ -431,6 +431,9 @@ async def _handle_hybrid_query(
         citations=citations,
         confidence=_calculate_confidence(documents, rule_checks),
         query_type=QueryType.HYBRID,
+    )
+
+
 # LLM Communication (Ollama)
 async def _call_groq(prompt: str) -> str:
     """
