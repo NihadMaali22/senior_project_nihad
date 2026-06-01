@@ -82,6 +82,7 @@ class Settings(BaseSettings):
 
     # ---- TTS ----
     MUNSIT_API_KEY: str = ""
+    ELEVEN_API_KEY: str = ""
 
     # ---- Data Directories ----
     REGULATIONS_DATA_DIR: str = "data/regulations"   # hand-written policy files

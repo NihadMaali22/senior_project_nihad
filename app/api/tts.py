@@ -1,9 +1,9 @@
 # ============================================================
-# TTS Endpoint — Proxy for Munsit API
+# TTS Endpoint — Proxy for ElevenLabs API
 # ============================================================
 """
-Provides Text-to-Speech capabilities by proxying requests to the Munsit API.
-Converts the raw PCM stream into a WAV stream so the browser can play it directly.
+Provides Text-to-Speech capabilities by proxying requests to the ElevenLabs API.
+Converts the raw PCM stream into a WAV stream so the browser and robot can play it directly.
 """
 
 from __future__ import annotations
@@ -12,13 +12,16 @@ import logging
 import struct
 from typing import AsyncGenerator
 
-import httpx
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.auth.middleware import get_current_user
+from app.dependencies import get_db_session
+from app.db.models import Student
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -27,7 +30,7 @@ router = APIRouter(prefix="/tts", tags=["TTS"])
 
 class TTSRequest(BaseModel):
     text: str
-    voice_id: str = "ar-najdi-male-2"
+    voice_id: str = "pCKbQ4EPGE06zpEPGNvS"  # Default to Abdullah's voice ID
     speed: float = 1.0
 
 def create_wav_header(sample_rate: int = 24000, num_channels: int = 1, bits_per_sample: int = 16) -> bytes:
@@ -57,63 +60,93 @@ def create_wav_header(sample_rate: int = 24000, num_channels: int = 1, bits_per_
     )
     return header
 
-async def stream_munsit_audio(text: str, voice_id: str, speed: float) -> AsyncGenerator[bytes, None]:
-    """Streams audio from Munsit API and prepends a WAV header."""
-    if not settings.MUNSIT_API_KEY or settings.MUNSIT_API_KEY == "YOUR_API_KEY":
-        raise HTTPException(status_code=500, detail="Munsit API key not configured")
+def is_female_student(first_name: str) -> bool:
+    """Heuristic to check if a student's first name is feminine (Arabic or English)."""
+    name_clean = first_name.strip().lower()
+    
+    # Common English-transliterated female names in seed/system
+    english_female_names = {"noor", "lina", "aya", "rania", "salma", "dana", "layla", "sarah", "fatima"}
+    if name_clean in english_female_names:
+        return True
+        
+    # Common Arabic female names
+    arabic_female_names = {"نور", "لينا", "آية", "رانيا", "سلمى", "دانا", "ليلى", "سارة", "فاطمة"}
+    if name_clean in arabic_female_names:
+        return True
+        
+    # Heuristic for Arabic names ending in Teh Marbuta (ة) or Alef Maksura (ى) or Alef (ا)
+    if name_clean and (name_clean.endswith("ة") or name_clean.endswith("ى") or name_clean.endswith("ا")):
+        return True
+        
+    return False
 
-    url = "https://api.munsit.com/api/v1/text-to-speech/faseeh-v1-preview"
-    headers = {
-        "x-api-key": settings.MUNSIT_API_KEY,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "voice_id": voice_id,
-        "text": text,
-        "streaming": True,
-        "stability": 0.5,
-        "speed": speed
-    }
+async def stream_elevenlabs_audio(text: str, voice_id: str) -> AsyncGenerator[bytes, None]:
+    """Streams audio from ElevenLabs API and prepends a WAV header."""
+    if not settings.ELEVEN_API_KEY:
+        raise HTTPException(status_code=500, detail="ElevenLabs API key not configured")
 
-    logger.info(f"Munsit TTS request: text_len={len(text)}, voice={voice_id}, speed={speed}")
+    logger.info(f"ElevenLabs TTS request: text_len={len(text)}, voice={voice_id}")
 
     try:
-        async with httpx.AsyncClient() as client:
-            async with client.stream("POST", url, headers=headers, json=payload, timeout=60.0) as response:
-                if response.status_code != 200:
-                    error_detail = await response.aread()
-                    error_msg = error_detail.decode("utf-8", errors="replace")
-                    logger.error(f"Munsit API Error: {response.status_code} - {error_msg}")
-                    raise HTTPException(
-                        status_code=response.status_code,
-                        detail=f"Munsit API error: {error_msg}"
-                    )
+        from elevenlabs.client import AsyncElevenLabs
+        client = AsyncElevenLabs(api_key=settings.ELEVEN_API_KEY)
+        
+        # Request uncompressed PCM 24kHz stream
+        audio_stream = await client.text_to_speech.convert_as_stream(
+            text=text,
+            voice_id=voice_id,
+            model_id="eleven_multilingual_v2",
+            output_format="pcm_24000"
+        )
 
-                # Only yield WAV header AFTER confirming API responded with 200
-                yield create_wav_header(sample_rate=24000)
+        # Prepend standard WAV header for PCM 24kHz, 16-bit, mono
+        yield create_wav_header(sample_rate=24000)
 
-                chunk_count = 0
-                async for chunk in response.aiter_bytes():
-                    chunk_count += 1
-                    yield chunk
+        chunk_count = 0
+        async for chunk in audio_stream:
+            if isinstance(chunk, bytes):
+                chunk_count += 1
+                yield chunk
 
-                logger.info(f"Munsit TTS completed: {chunk_count} chunks streamed")
+        logger.info(f"ElevenLabs TTS completed: {chunk_count} chunks streamed")
 
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions as-is
-    except httpx.TimeoutException:
-        logger.error("Munsit API timed out after 60 seconds")
-        raise HTTPException(status_code=504, detail="Munsit API timed out")
     except Exception as e:
-        logger.error(f"Error streaming from Munsit: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=502, detail=f"Munsit connection error: {str(e)}")
+        logger.error(f"Error streaming from ElevenLabs: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"ElevenLabs connection error: {str(e)}")
 
 @router.post("", summary="Convert Text to Speech")
-async def generate_speech(request: TTSRequest, current_user: dict = Depends(get_current_user)):
+async def generate_speech(
+    request: TTSRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
     """
-    Converts text to speech using Munsit API.
+    Converts text to speech using ElevenLabs API.
     Returns a WAV audio stream.
+    Automatically detects student gender and uses voice Abdullah (male) or Sarah (female).
     Requires authentication.
     """
-    generator = stream_munsit_audio(request.text, request.voice_id, request.speed)
+    student_id = getattr(current_user, "student_id", None)
+    first_name = ""
+    
+    if student_id:
+        try:
+            result = await db.execute(select(Student).where(Student.id == student_id))
+            student = result.scalar_one_or_none()
+            if student:
+                first_name = student.first_name
+        except Exception as e:
+            logger.error(f"Error fetching student name for TTS: {e}")
+
+    # Voice assignment
+    # Abdullah: pCKbQ4EPGE06zpEPGNvS
+    # Sarah: jAAHNNqlbAX9iWjJPEtE
+    if first_name and is_female_student(first_name):
+        selected_voice = "jAAHNNqlbAX9iWjJPEtE"  # Sarah (female)
+        logger.info(f"TTS: Student '{first_name}' detected as Female. Using voice Sarah.")
+    else:
+        selected_voice = "pCKbQ4EPGE06zpEPGNvS"  # Abdullah (male)
+        logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice Abdullah.")
+
+    generator = stream_elevenlabs_audio(request.text, selected_voice)
     return StreamingResponse(generator, media_type="audio/wav")
