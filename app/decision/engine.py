@@ -431,41 +431,132 @@ async def _handle_hybrid_query(
         citations=citations,
         confidence=_calculate_confidence(documents, rule_checks),
         query_type=QueryType.HYBRID,
-    )
-
-
-# ============================================================
 # LLM Communication (Ollama)
-# ============================================================
+async def _call_groq(prompt: str) -> str:
+    """
+    Send a prompt to the Groq API (using Llama 3.1) and return the response.
+    """
+    if not settings.GROQ_API_KEY:
+        logger.error("GROQ_API_KEY is not set. Please add it to your .env file.")
+        return _fallback_response(prompt)
+
+    try:
+        client = _get_http_client()
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        
+        payload = {
+            "model": settings.GROQ_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        response = await client.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 200:
+            res_json = response.json()
+            try:
+                text = res_json['choices'][0]['message']['content']
+                return text
+            except (KeyError, IndexError) as e:
+                logger.error(f"Unexpected Groq response structure: {res_json}")
+                return _fallback_response(prompt)
+        else:
+            logger.error(f"Groq API returned status {response.status_code}: {response.text[:200]}")
+            return _fallback_response(prompt)
+
+    except httpx.TimeoutException:
+        logger.error("Groq request timed out")
+        return _fallback_response(prompt)
+    except httpx.ConnectError:
+        logger.error("Could not connect to Groq API. Check your internet connection.")
+        return _fallback_response(prompt)
+    except Exception as e:
+        logger.error(f"Groq error: {e}", exc_info=True)
+        return _fallback_response(prompt)
+
+
+async def _call_groq_stream(prompt: str):
+    """
+    Stream tokens from the Groq API using Server-Sent Events (SSE).
+    """
+    if not settings.GROQ_API_KEY:
+        logger.error("GROQ_API_KEY is not set. Please add it to your .env file.")
+        yield _fallback_response(prompt)
+        return
+
+    try:
+        client = _get_http_client()
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        
+        payload = {
+            "model": settings.GROQ_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096,
+            "stream": True
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        async with client.stream("POST", url, json=payload, headers=headers) as response:
+            if response.status_code != 200:
+                error_text = await response.aread()
+                logger.error(f"Groq stream error: {response.status_code} - {error_text[:200]}")
+                yield _fallback_response(prompt)
+                return
+
+            async for line in response.aiter_lines():
+                if not line.strip():
+                     continue
+                if line.startswith("data: "):
+                    json_str = line[len("data: "):].strip()
+                    if json_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(json_str)
+                        token = chunk['choices'][0]['delta'].get('content', '')
+                        if token:
+                            yield token
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+
+    except httpx.TimeoutException:
+        logger.error("Groq stream timed out")
+        yield _fallback_response(prompt)
+    except httpx.ConnectError:
+        logger.error("Could not connect to Groq API. Check your internet connection.")
+        yield _fallback_response(prompt)
+    except Exception as e:
+        logger.error(f"Groq stream error: {e}", exc_info=True)
+        yield _fallback_response(prompt)
+
+
 async def _call_ollama(prompt: str) -> str:
     """
-    Send a prompt to the Gemini API (acting as a drop-in replacement for Ollama)
+    Send a prompt to the LLM (Groq if configured, otherwise Gemini API)
     and return the full response.
     """
-    # --- Ollama Local LLM (Commented Out) ---
-    # try:
-    #     client = _get_http_client()
-    #     response = await client.post(
-    #         "/api/generate",
-    #         json={
-    #             "model": settings.OLLAMA_MODEL,
-    #             "prompt": prompt,
-    #             "stream": False,
-    #             "options": {
-    #                 "temperature": 0.3,
-    #                 "top_p": 0.9,
-    #                 "num_predict": 512,
-    #                 "num_ctx": 2048,
-    #             },
-    #         },
-    #     )
-    # 
-    #     if response.status_code == 200:
-    #         return response.json().get("response", "No response generated.")
-    #     else:
-    #         logger.error(f"Ollama returned status {response.status_code}: {response.text[:200]}")
-    #         return _fallback_response(prompt)
-    # ...
+    if settings.GROQ_API_KEY:
+        return await _call_groq(prompt)
 
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
@@ -520,34 +611,12 @@ async def _call_ollama(prompt: str) -> str:
 
 async def _call_ollama_stream(prompt: str):
     """
-    Stream tokens from Gemini API (acting as a drop-in replacement for Ollama).
+    Stream tokens from LLM (Groq if configured, otherwise Gemini API).
     """
-    # --- Ollama Local LLM (Commented Out) ---
-    # try:
-    #     client = _get_http_client()
-    #     async with client.stream(
-    #         "POST",
-    #         "/api/generate",
-    #         json={
-    #             "model": settings.OLLAMA_MODEL,
-    #             "prompt": prompt,
-    #             "stream": True,
-    #             "options": {
-    #                 "temperature": 0.3,
-    #                 "top_p": 0.9,
-    #                 "num_predict": 512,
-    #                 "num_ctx": 2048,
-    #             },
-    #         },
-    #     ) as response:
-    #         if response.status_code != 200:
-    #             error_text = await response.aread()
-    #             logger.error(f"Ollama stream error: {response.status_code} - {error_text[:200]}")
-    #             yield _fallback_response(prompt)
-    #             return
-    # 
-    #         async for line in response.aiter_lines():
-    #             ...
+    if settings.GROQ_API_KEY:
+        async for token in _call_groq_stream(prompt):
+            yield token
+        return
 
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")

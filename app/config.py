@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-flash-latest"
     GEMINI_TIMEOUT: int = 90
 
+    # ---- Groq API ----
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.1-70b-versatile"
+
     # ---- Embedding Models ----
     DENSE_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
     DENSE_EMBEDDING_DIM: int = 384

@@ -267,33 +267,51 @@ async def classify_query(question: str) -> dict:
 
 async def _llm_classify(question: str) -> Optional[dict]:
     """
-    Use Gemini API to classify the query (acting as a drop-in replacement for Ollama).
+    Use Groq API (if configured) or Gemini API to classify the query.
     Returns None if classification fails.
     """
     prompt = CLASSIFICATION_PROMPT.format(question=question)
 
-    # --- Ollama Local LLM (Commented Out) ---
-    # try:
-    #     async with httpx.AsyncClient(timeout=30.0) as client:
-    #         response = await client.post(
-    #             f"{settings.OLLAMA_URL}/api/generate",
-    #             json={
-    #                 "model": settings.OLLAMA_MODEL,
-    #                 "prompt": prompt,
-    #                 "stream": False,
-    #                 "options": {
-    #                     "temperature": 0.1,   # Low temperature for consistent classification
-    #                     "num_predict": 150,    # Short response expected
-    #                 },
-    #             },
-    #         )
-    # 
-    #     if response.status_code != 200:
-    #         logger.warning(f"Ollama returned status {response.status_code}")
-    #         return None
-    # 
-    #     response_text = response.json().get("response", "")
-    # ...
+    if settings.GROQ_API_KEY:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            payload = {
+                "model": settings.GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.1,
+                "max_tokens": 150
+            }
+            headers = {
+                "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                
+            if response.status_code != 200:
+                logger.warning(f"Groq API returned status {response.status_code} during classification")
+                return None
+                
+            res_json = response.json()
+            try:
+                response_text = res_json['choices'][0]['message']['content']
+            except (KeyError, IndexError):
+                logger.warning(f"Unexpected Groq classification response: {res_json}")
+                return None
+                
+            parsed = _parse_classification_response(response_text)
+            if parsed:
+                return parsed
+            logger.warning(f"Could not parse Groq classification response: {response_text[:200]}")
+            return None
+        except Exception as e:
+            logger.warning(f"Groq classification error: {e}")
+            return None
 
     if not settings.GEMINI_API_KEY:
         logger.warning("GEMINI_API_KEY is not set. Classification will fallback to keywords.")
