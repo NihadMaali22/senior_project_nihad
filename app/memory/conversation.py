@@ -61,6 +61,8 @@ async def get_conversation_history(
 ) -> List[Dict[str, Any]]:
     """
     Retrieve recent conversation history for a session.
+    Filters history to only include messages from the current active conversation segment
+    (messages separated by no more than 30 minutes of inactivity).
 
     Args:
         session: Async database session.
@@ -78,6 +80,31 @@ async def get_conversation_history(
     )
 
     messages = result.scalars().all()
+    if not messages:
+        return []
+
+    from datetime import datetime, timezone
+    
+    # Inactivity threshold: 30 minutes
+    INACTIVITY_THRESHOLD_MINUTES = 30
+    
+    active_messages = []
+    # Compare against current time first. If the student hasn't typed for 30 mins, we start fresh.
+    reference_time = datetime.now(timezone.utc)
+    
+    for msg in messages:
+        msg_time = msg.created_at
+        if msg_time.tzinfo is None:
+            msg_time = msg_time.replace(tzinfo=timezone.utc)
+            
+        gap_minutes = (reference_time - msg_time).total_seconds() / 60.0
+        
+        # If there's a gap of more than 30 minutes, this message belongs to a previous session
+        if gap_minutes > INACTIVITY_THRESHOLD_MINUTES:
+            break
+            
+        active_messages.append(msg)
+        reference_time = msg_time
 
     # Reverse to get chronological order
     return [
@@ -86,7 +113,7 @@ async def get_conversation_history(
             "content": msg.content,
             "created_at": msg.created_at.isoformat() if msg.created_at else None,
         }
-        for msg in reversed(messages)
+        for msg in reversed(active_messages)
     ]
 
 

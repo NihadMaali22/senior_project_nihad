@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # ---- Gemini API ----
     GEMINI_API_KEY: str = "AIzaSyCiexVZaLFDJMPF1QR_wtaC5Es1OWtd0IQ"
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-flash-latest"
     GEMINI_TIMEOUT: int = 90
 
     # ---- Embedding Models ----
