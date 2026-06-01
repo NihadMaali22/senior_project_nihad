@@ -30,7 +30,7 @@ router = APIRouter(prefix="/tts", tags=["TTS"])
 
 class TTSRequest(BaseModel):
     text: str
-    voice_id: str = "pCKbQ4EPGE06zpEPGNvS"  # Default to Abdullah's voice ID
+    voice_id: str = "ErXwobaYiN019PkySvjV"  # Default to Antoni (pre-made male)
     speed: float = 1.0
 
 def create_wav_header(sample_rate: int = 24000, num_channels: int = 1, bits_per_sample: int = 16) -> bytes:
@@ -91,8 +91,8 @@ async def stream_elevenlabs_audio(text: str, voice_id: str) -> AsyncGenerator[by
         from elevenlabs.client import AsyncElevenLabs
         client = AsyncElevenLabs(api_key=settings.ELEVEN_API_KEY)
         
-        # Request uncompressed PCM 24kHz stream
-        audio_stream = await client.text_to_speech.convert_as_stream(
+        # Request uncompressed PCM 24kHz stream using stream() method (no await on the call itself)
+        audio_stream = client.text_to_speech.stream(
             text=text,
             voice_id=voice_id,
             model_id="eleven_multilingual_v2",
@@ -139,14 +139,14 @@ async def generate_speech(
             logger.error(f"Error fetching student name for TTS: {e}")
 
     # Voice assignment
-    # Abdullah: pCKbQ4EPGE06zpEPGNvS
-    # Sarah: jAAHNNqlbAX9iWjJPEtE
+    # Rachel (pre-made female): 21m00Tcm4TlvDq8ikWAM
+    # Antoni (pre-made male): ErXwobaYiN019PkySvjV
     if first_name and is_female_student(first_name):
-        selected_voice = "jAAHNNqlbAX9iWjJPEtE"  # Sarah (female)
-        logger.info(f"TTS: Student '{first_name}' detected as Female. Using voice Sarah.")
+        selected_voice = "21m00Tcm4TlvDq8ikWAM"  # Rachel (female)
+        logger.info(f"TTS: Student '{first_name}' detected as Female. Using voice Rachel.")
     else:
-        selected_voice = "pCKbQ4EPGE06zpEPGNvS"  # Abdullah (male)
-        logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice Abdullah.")
+        selected_voice = "ErXwobaYiN019PkySvjV"  # Antoni (male)
+        logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice Antoni.")
 
     generator = stream_elevenlabs_audio(request.text, selected_voice)
     return StreamingResponse(generator, media_type="audio/wav")
