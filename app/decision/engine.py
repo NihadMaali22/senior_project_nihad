@@ -435,9 +435,70 @@ async def _handle_hybrid_query(
 
 
 # LLM Communication (Ollama)
+async def _strip_think_stream(token_generator):
+    """
+    Asynchronously filters out <think>...</think> blocks from a token stream.
+    Correctly handles tags that are split across multiple tokens.
+    """
+    buffer = ""
+    in_think = False
+    
+    async for token in token_generator:
+        buffer += token
+        
+        # Check if we are entering a think block
+        if not in_think and "<think>" in buffer:
+            parts = buffer.split("<think>", 1)
+            if parts[0]:
+                yield parts[0]
+            in_think = True
+            buffer = parts[1]
+            
+        # Check if we are exiting a think block
+        if in_think and "</think>" in buffer:
+            parts = buffer.split("</think>", 1)
+            in_think = False
+            # Strip leading whitespace/newlines immediately following </think>
+            buffer = parts[1].lstrip()
+            continue
+            
+        if in_think:
+            # We are inside the think block, keep accumulating but don't yield.
+            # Truncate buffer to prevent memory growth during long thinking phases,
+            # keeping only the last 10 characters in case </think> is split.
+            if "</think>" not in buffer and len(buffer) > 10:
+                buffer = buffer[-10:]
+            continue
+            
+        # Check if buffer is building up to the start of a <think> tag.
+        # Prefixes: "<", "<t", "<th", "<thi", "<thin", "<think"
+        if not in_think:
+            is_prefix = False
+            for i in range(1, len("<think>") + 1):
+                prefix = "<think>"[:i]
+                if buffer.endswith(prefix):
+                    is_prefix = True
+                    break
+            
+            if is_prefix:
+                # Yield everything except the potential prefix
+                prefix_len = len(prefix)
+                to_yield = buffer[:-prefix_len]
+                if to_yield:
+                    yield to_yield
+                buffer = buffer[-prefix_len:]
+            else:
+                yield buffer
+                buffer = ""
+                
+    # Yield any remaining content if we aren't in a think block
+    if not in_think and buffer:
+        yield buffer
+
+
 async def _call_groq(prompt: str) -> str:
     """
-    Send a prompt to the Groq API (using Llama 3.1) and return the response.
+    Send a prompt to the Groq API and return the response.
     """
     if not settings.GROQ_API_KEY:
         logger.error("GROQ_API_KEY is not set. Please add it to your .env file.")
@@ -455,8 +516,10 @@ async def _call_groq(prompt: str) -> str:
                     "content": prompt
                 }
             ],
-            "temperature": 0.3,
-            "max_tokens": 4096
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "max_completion_tokens": 4096,
+            "reasoning_effort": "default"
         }
         
         headers = {
@@ -470,6 +533,8 @@ async def _call_groq(prompt: str) -> str:
             res_json = response.json()
             try:
                 text = res_json['choices'][0]['message']['content']
+                # Strip think blocks
+                text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
                 return text
             except (KeyError, IndexError) as e:
                 logger.error(f"Unexpected Groq response structure: {res_json}")
@@ -510,8 +575,10 @@ async def _call_groq_stream(prompt: str):
                     "content": prompt
                 }
             ],
-            "temperature": 0.3,
-            "max_tokens": 4096,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "max_completion_tokens": 4096,
+            "reasoning_effort": "default",
             "stream": True
         }
         
@@ -531,16 +598,16 @@ async def _call_groq_stream(prompt: str):
                 if not line.strip():
                      continue
                 if line.startswith("data: "):
-                    json_str = line[len("data: "):].strip()
-                    if json_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(json_str)
-                        token = chunk['choices'][0]['delta'].get('content', '')
-                        if token:
-                            yield token
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
+                     json_str = line[len("data: "):].strip()
+                     if json_str == "[DONE]":
+                         break
+                     try:
+                         chunk = json.loads(json_str)
+                         token = chunk['choices'][0]['delta'].get('content', '')
+                         if token:
+                             yield token
+                     except (json.JSONDecodeError, KeyError, IndexError):
+                         continue
 
     except httpx.TimeoutException:
         logger.error("Groq stream timed out")
@@ -593,6 +660,8 @@ async def _call_ollama(prompt: str) -> str:
             res_json = response.json()
             try:
                 text = res_json['candidates'][0]['content']['parts'][0]['text']
+                # Strip think blocks
+                text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
                 return text
             except (KeyError, IndexError) as e:
                 logger.error(f"Unexpected Gemini response structure: {res_json}")
@@ -617,7 +686,7 @@ async def _call_ollama_stream(prompt: str):
     Stream tokens from LLM (Groq if configured, otherwise Gemini API).
     """
     if settings.GROQ_API_KEY:
-        async for token in _call_groq_stream(prompt):
+        async for token in _strip_think_stream(_call_groq_stream(prompt)):
             yield token
         return
 
@@ -903,16 +972,18 @@ def _parse_decision_response(response: str) -> Dict[str, Any]:
     ANSWER: [full answer]
     CITATIONS: [citation list]
     """
+    clean_response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
     result = {
         "decision": DecisionOutcome.INFO,
         "reasoning": [],
-        "answer": response,
+        "answer": clean_response,
     }
 
     # Extract DECISION
     decision_match = re.search(
         r"(?:DECISION|القرار|القرار\s+النهائي):\s*(APPROVED|DENIED|CONDITIONAL|INFO|موافق|مقبول|تمت\s+الموافقة|مرفوض|تم\s+الرفض|مشروط|موافقة\s+مشروطة|معلومات|توضيح)",
-        response,
+        clean_response,
         re.IGNORECASE,
     )
     if decision_match:
@@ -929,7 +1000,7 @@ def _parse_decision_response(response: str) -> Dict[str, Any]:
     # Extract REASONING
     reasoning_match = re.search(
         r"(?:REASONING|الأسباب|التعليل|التبرير|الحيثيات):\s*\n(.*?)(?=\n(?:ANSWER|RESPONSE|الإجابة|الرد|الجواب|الرد\s+المباشر|الرد\s+النهائي|CITATIONS|SOURCES|المصادر|المراجع|الاقتباسات):|\Z)",
-        response,
+        clean_response,
         re.DOTALL | re.IGNORECASE,
     )
     if reasoning_match:
@@ -946,7 +1017,7 @@ def _parse_decision_response(response: str) -> Dict[str, Any]:
     # Extract ANSWER
     answer_match = re.search(
         r"(?:ANSWER|RESPONSE|الإجابة|الرد|الجواب|الرد\s+المباشر|الرد\s+النهائي):\s*\n(.*?)(?=\n(?:CITATIONS|SOURCES|المصادر|المراجع|الاقتباسات):|\Z)",
-        response,
+        clean_response,
         re.DOTALL | re.IGNORECASE,
     )
     if answer_match:
@@ -1216,7 +1287,7 @@ async def process_query_stream(
             clean_answer = parsed.get("answer", full_response)
         else:
             decision = DecisionOutcome.INFO
-            clean_answer = full_response
+            clean_answer = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL).strip()
 
         # Send metadata as final event
         metadata = {

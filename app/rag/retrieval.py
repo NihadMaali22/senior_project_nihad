@@ -98,49 +98,87 @@ async def translate_query_if_arabic(query: str) -> str:
     if not any(u'\u0600' <= char <= u'\u06FF' for char in query):
         return query
 
-    if not settings.GEMINI_API_KEY:
-        return query
+    import re
+    import httpx
 
-    try:
-        import httpx
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
-        
-        prompt = (
-            f"Translate the following Arabic academic question from a student into clear English "
-            f"suitable for search/retrieval of academic regulations. Return ONLY the English translation, "
-            f"nothing else. Do not include quotes.\n\n"
-            f"Question: {query}"
-        )
+    prompt = (
+        f"Translate the following Arabic academic question from a student into clear English "
+        f"suitable for search/retrieval of academic regulations. Return ONLY the English translation, "
+        f"nothing else. Do not include quotes.\n\n"
+        f"Question: {query}"
+    )
 
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ],
-            "generationConfig": {
+    # 1. Try Groq if configured
+    if settings.GROQ_API_KEY:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            payload = {
+                "model": settings.GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
                 "temperature": 0.1,
-                "maxOutputTokens": 100
+                "max_completion_tokens": 100,
+                "reasoning_effort": "none"
             }
-        }
-        
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            )
+            headers = {
+                "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                
+            if response.status_code == 200:
+                res_json = response.json()
+                translation = res_json['choices'][0]['message']['content'].strip()
+                # Strip think blocks if any
+                translation = re.sub(r"<think>.*?</think>", "", translation, flags=re.DOTALL).strip()
+                translation = translation.strip('"\'')
+                logger.info(f"Translated query for retrieval (via Groq): '{query}' -> '{translation}'")
+                return translation
+            else:
+                logger.warning(f"Groq translation API returned status {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Failed to translate query via Groq: {e}")
+
+    # 2. Fallback to Gemini if configured
+    if settings.GEMINI_API_KEY:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt}
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 100
+                }
+            }
             
-        if response.status_code == 200:
-            res_json = response.json()
-            translation = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-            translation = translation.strip('"\'')
-            logger.info(f"Translated query for retrieval: '{query}' -> '{translation}'")
-            return translation
-    except Exception as e:
-        logger.warning(f"Failed to translate query for retrieval: {e}")
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                
+            if response.status_code == 200:
+                res_json = response.json()
+                translation = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                # Strip think blocks if any
+                translation = re.sub(r"<think>.*?</think>", "", translation, flags=re.DOTALL).strip()
+                translation = translation.strip('"\'')
+                logger.info(f"Translated query for retrieval (via Gemini): '{query}' -> '{translation}'")
+                return translation
+        except Exception as e:
+            logger.warning(f"Failed to translate query via Gemini: {e}")
     
     return query
 

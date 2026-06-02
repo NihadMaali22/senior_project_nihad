@@ -8,11 +8,11 @@ logging.basicConfig(level=logging.INFO)
 async def test_groq():
     settings = get_settings()
     if not settings.GROQ_API_KEY:
-        print("❌ Error: GROQ_API_KEY is not set in the environment or .env file.")
+        print("[ERROR] GROQ_API_KEY is not set in the environment or .env file.")
         print("Please add 'GROQ_API_KEY=gsk_...' to your .env file to run this test.")
         return
         
-    print(f"✅ Found GROQ_API_KEY in configuration. Model: {settings.GROQ_MODEL}")
+    print(f"[OK] Found GROQ_API_KEY in configuration. Model: {settings.GROQ_MODEL}")
     prompt = "Hello Llama 3.1! Respond with a single short sentence confirming you are running via Groq."
     
     print("\n--- Testing Non-Streaming Call ---")

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # ---- Groq API ----
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.1-70b-versatile"
+    GROQ_MODEL: str = "qwen/qwen3-32b"
 
     # ---- Embedding Models ----
     DENSE_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

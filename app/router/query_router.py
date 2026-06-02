@@ -284,7 +284,8 @@ async def _llm_classify(question: str) -> Optional[dict]:
                     }
                 ],
                 "temperature": 0.1,
-                "max_tokens": 150
+                "max_completion_tokens": 150,
+                "reasoning_effort": "none"
             }
             headers = {
                 "Authorization": f"Bearer {settings.GROQ_API_KEY}",
@@ -300,6 +301,8 @@ async def _llm_classify(question: str) -> Optional[dict]:
             res_json = response.json()
             try:
                 response_text = res_json['choices'][0]['message']['content']
+                # Strip think blocks
+                response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
             except (KeyError, IndexError):
                 logger.warning(f"Unexpected Groq classification response: {res_json}")
                 return None
