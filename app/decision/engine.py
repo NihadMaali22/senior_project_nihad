@@ -620,14 +620,8 @@ async def _call_groq_stream(prompt: str):
         yield _fallback_response(prompt)
 
 
-async def _call_ollama(prompt: str) -> str:
-    """
-    Send a prompt to the LLM (Groq if configured, otherwise Gemini API)
-    and return the full response.
-    """
-    if settings.GROQ_API_KEY:
-        return await _call_groq(prompt)
-
+async def _call_gemini(prompt: str) -> str:
+    """Send a prompt to the Gemini API and return the full response."""
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
         return _fallback_response(prompt)
@@ -659,10 +653,16 @@ async def _call_ollama(prompt: str) -> str:
         if response.status_code == 200:
             res_json = response.json()
             try:
-                text = res_json['candidates'][0]['content']['parts'][0]['text']
-                # Strip think blocks
-                text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-                return text
+                content = res_json['candidates'][0].get('content', {})
+                parts = content.get('parts', [])
+                if parts and 'text' in parts[0]:
+                    text = parts[0]['text']
+                    # Strip think blocks
+                    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+                    return text
+                else:
+                    logger.error(f"Gemini response content has no text parts: {res_json}")
+                    return _fallback_response(prompt)
             except (KeyError, IndexError) as e:
                 logger.error(f"Unexpected Gemini response structure: {res_json}")
                 return _fallback_response(prompt)
@@ -681,15 +681,8 @@ async def _call_ollama(prompt: str) -> str:
         return _fallback_response(prompt)
 
 
-async def _call_ollama_stream(prompt: str):
-    """
-    Stream tokens from LLM (Groq if configured, otherwise Gemini API).
-    """
-    if settings.GROQ_API_KEY:
-        async for token in _strip_think_stream(_call_groq_stream(prompt)):
-            yield token
-        return
-
+async def _call_gemini_stream(prompt: str):
+    """Stream tokens from the Gemini API."""
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
         yield _fallback_response(prompt)
@@ -747,6 +740,63 @@ async def _call_ollama_stream(prompt: str):
     except Exception as e:
         logger.error(f"Gemini stream error: {e}", exc_info=True)
         yield _fallback_response(prompt)
+
+
+async def _call_ollama(prompt: str) -> str:
+    """
+    Send a prompt to the LLM (Groq if configured, otherwise Gemini API)
+    and return the full response.
+    Falls back to Gemini if Groq fails.
+    """
+    if settings.GROQ_API_KEY:
+        try:
+            logger.info("Attempting to call Groq API...")
+            response = await _call_groq(prompt)
+            if not _ollama_unavailable(response):
+                return response
+            logger.warning("Groq API returned fallback, trying Gemini API as backup...")
+        except Exception as e:
+            logger.error(f"Groq API call failed: {e}. trying Gemini API as backup...")
+
+    return await _call_gemini(prompt)
+
+
+async def _call_ollama_stream(prompt: str):
+    """
+    Stream tokens from LLM (Groq if configured, otherwise Gemini API).
+    Falls back to Gemini stream if Groq fails.
+    """
+    if settings.GROQ_API_KEY:
+        try:
+            logger.info("Attempting to stream from Groq...")
+            generator = _strip_think_stream(_call_groq_stream(prompt))
+            
+            # Peek at the first token to check for fallback
+            first_token = None
+            try:
+                first_token = await asyncio.wait_for(anext(generator), timeout=10.0)
+            except StopAsyncIteration:
+                pass
+            except Exception as e:
+                logger.error(f"Failed to get first token from Groq stream: {e}")
+            
+            if first_token is not None:
+                if not _ollama_unavailable(first_token):
+                    # Groq stream is working! Yield the first token and all subsequent ones
+                    yield first_token
+                    async for token in generator:
+                        yield token
+                    return
+                else:
+                    logger.warning("Groq stream returned fallback token, trying Gemini stream as backup...")
+            else:
+                logger.warning("Groq stream yielded no tokens, trying Gemini stream as backup...")
+        except Exception as e:
+            logger.error(f"Groq stream failed: {e}. Trying Gemini stream as backup...")
+
+    # Fall back to Gemini stream
+    async for token in _call_gemini_stream(prompt):
+        yield token
 
 
 
