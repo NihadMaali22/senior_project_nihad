@@ -446,6 +446,35 @@ html, body {
     border: 1px solid var(--panel-border);
     color: var(--text-main);
 }
+.speed-select {
+    width: auto;
+    height: 38px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--panel-border);
+    color: var(--text-main);
+    background: transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    outline: none;
+    transition: all 0.2s;
+}
+.chat-header .speed-select {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+.chat-header .speed-select:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+.chat-header .speed-select option {
+    background: var(--primary);
+    color: #ffffff;
+}
 
 /* User badge */
 .user-badge {

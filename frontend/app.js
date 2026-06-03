@@ -69,6 +69,7 @@ let jwtToken      = localStorage.getItem('academic_token');
 let currentLang   = localStorage.getItem('academic_lang') || 'ar';
 let currentUser   = JSON.parse(localStorage.getItem('academic_user') || 'null');
 let isVoiceEnabled = true;
+let voiceSpeed    = parseFloat(localStorage.getItem('academic_voice_speed') || '1.3');
 let sessionId     = null;
 let currentAudio  = null;
 let isRecording   = false;
@@ -84,6 +85,7 @@ const questionInput  = document.getElementById('question-input');
 const chatMessages   = document.getElementById('chat-messages');
 const micBtn         = document.getElementById('mic-btn');
 const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+const voiceSpeedSelect = document.getElementById('voice-speed-select');
 const clearBtn       = document.getElementById('clear-btn');
 const langToggleBtn  = document.getElementById('lang-toggle-btn');
 const userDisplay    = document.getElementById('user-display');
@@ -255,41 +257,49 @@ async function speak(text) {
 }
 
 async function speakViaMunsit(text) {
-    try {
-        const res = await fetch(`${API_BASE}/tts`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${jwtToken}`,
-            },
-            body: JSON.stringify({ text, voice_id: 'ar-najdi-male-2', speed: 1.0 }),
-        });
-        if (!res.ok) {
-            const errBody = await res.text();
-            console.error(`Munsit TTS failed: ${res.status}`, errBody);
-            return false;
+    return new Promise((resolve) => {
+        try {
+            // Use streaming GET request with token query parameter for instant playback
+            const url = `${API_BASE}/tts?text=${encodeURIComponent(text)}&voice_id=ar-najdi-male-2&speed=${voiceSpeed}&token=${encodeURIComponent(jwtToken)}`;
+            currentAudio = new Audio(url);
+            
+            let resolved = false;
+            currentAudio.onplay = () => {
+                if (!resolved) {
+                    resolved = true;
+                    resolve(true);
+                }
+            };
+            currentAudio.onerror = (e) => {
+                console.error('Munsit Audio streaming error:', e);
+                if (!resolved) {
+                    resolved = true;
+                    resolve(false);
+                }
+            };
+            currentAudio.onended = () => {
+                currentAudio = null;
+            };
+            
+            currentAudio.play().catch(err => {
+                console.error('Audio playback failed:', err);
+                if (!resolved) {
+                    resolved = true;
+                    resolve(false);
+                }
+            });
+        } catch (e) {
+            console.error('Munsit TTS error:', e);
+            resolve(false);
         }
-        const blob = await res.blob();
-        if (!blob || blob.size < 100) {
-            console.warn('Munsit returned empty or too-small audio blob:', blob?.size);
-            return false;
-        }
-        const url  = URL.createObjectURL(blob);
-        currentAudio = new Audio(url);
-        currentAudio.play();
-        currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
-        return true;
-    } catch (e) {
-        console.error('Munsit TTS error:', e);
-        return false;
-    }
+    });
 }
 
 function speakViaBrowser(text, lang) {
     if (!window.speechSynthesis) return;
     const utt = new SpeechSynthesisUtterance(text);
     utt.lang = lang;
-    utt.rate = 0.9;
+    utt.rate = voiceSpeed;
     window.speechSynthesis.speak(utt);
 }
 
@@ -616,6 +626,14 @@ document.querySelectorAll('.quick-btn').forEach(btn => {
 
 // ── Initialise ────────────────────────────────────────────────
 setLanguage(currentLang);
+
+if (voiceSpeedSelect) {
+    voiceSpeedSelect.value = voiceSpeed.toString();
+    voiceSpeedSelect.addEventListener('change', (e) => {
+        voiceSpeed = parseFloat(e.target.value);
+        localStorage.setItem('academic_voice_speed', voiceSpeed);
+    });
+}
 
 if (jwtToken && currentUser) {
     appendWelcomeMessage();

@@ -10,17 +10,21 @@ from __future__ import annotations
 
 import logging
 import struct
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Depends
+import jwt
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.auth.middleware import get_current_user
+from app.auth.middleware import get_current_user, bearer_scheme
+from app.auth.schemas import TokenPayload
+from app.auth.service import decode_access_token
 from app.dependencies import get_db_session
 from app.db.models import Student
 
@@ -136,6 +140,40 @@ async def stream_munsit_audio(text: str, voice_id: str, speed: float) -> AsyncGe
         logger.error(f"Error streaming from Munsit: {type(e).__name__}: {e}")
         raise HTTPException(status_code=502, detail=f"Munsit connection error: {str(e)}")
 
+async def get_current_user_from_token(
+    token: Optional[str] = Query(None, description="JWT token via query parameter"),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> TokenPayload:
+    actual_token = None
+    if token:
+        actual_token = token
+    elif credentials:
+        actual_token = credentials.credentials
+
+    if not actual_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Provide a Bearer token or token query parameter.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = decode_access_token(actual_token)
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid token received: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 @router.post("", summary="Convert Text to Speech")
 async def generate_speech(
     request: TTSRequest,
@@ -169,4 +207,40 @@ async def generate_speech(
             logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice rHzpDFOsbm9Cy1gYfoVllk38.")
 
     generator = stream_munsit_audio(request.text, voice_id, request.speed)
+    return StreamingResponse(generator, media_type="audio/wav")
+
+@router.get("", summary="Convert Text to Speech via GET")
+async def generate_speech_get(
+    text: str,
+    voice_id: str = "rHzpDFOsbm9Cy1gYfoVllk38",
+    speed: float = 1.0,
+    token: Optional[str] = None,
+    current_user: TokenPayload = Depends(get_current_user_from_token),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Converts text to speech using Munsit API via GET request.
+    Returns a WAV audio stream. Allows query param token auth for HTML5 Audio streaming.
+    """
+    student_id = getattr(current_user, "student_id", None)
+    first_name = ""
+    
+    if student_id:
+        try:
+            result = await db.execute(select(Student).where(Student.id == student_id))
+            student = result.scalar_one_or_none()
+            if student:
+                first_name = student.first_name
+        except Exception as e:
+            logger.error(f"Error fetching student name for TTS: {e}")
+
+    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS", "rHzpDFOsbm9Cy1gYfoVllk38", "ar-msa-female-1"):
+        if first_name and is_female_student(first_name):
+            voice_id = "ar-msa-female-1"
+            logger.info(f"TTS: Student '{first_name}' detected as Female. Using voice ar-msa-female-1.")
+        else:
+            voice_id = "rHzpDFOsbm9Cy1gYfoVllk38"
+            logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice rHzpDFOsbm9Cy1gYfoVllk38.")
+
+    generator = stream_munsit_audio(text, voice_id, speed)
     return StreamingResponse(generator, media_type="audio/wav")
