@@ -35,7 +35,7 @@ router = APIRouter(prefix="/tts", tags=["TTS"])
 
 class TTSRequest(BaseModel):
     text: str
-    voice_id: str = "rHzpDFOsbm9Cy1gYfoVllk38"  # Default to user's Arabic voice ID
+    voice_id: str = "3NQTWYgRxBR3hOgdLtF0U02d"  # Default to user's Arabic voice ID
     speed: float = 1.0
 
 def create_wav_header(sample_rate: int = 24000, num_channels: int = 1, bits_per_sample: int = 16) -> bytes:
@@ -91,8 +91,8 @@ async def stream_munsit_audio(text: str, voice_id: str, speed: float) -> AsyncGe
         raise HTTPException(status_code=500, detail="Munsit API key not configured")
 
     # Map old default voice IDs to the new Arabic voice ID to ensure seamless migration
-    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS"):
-        voice_id = "rHzpDFOsbm9Cy1gYfoVllk38"
+    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS", "rHzpDFOsbm9Cy1gYfoVllk38"):
+        voice_id = "3NQTWYgRxBR3hOgdLtF0U02d"
 
     url = "https://api.munsit.com/api/v1/text-to-speech/faseeh-v1-preview"
     headers = {
@@ -198,13 +198,13 @@ async def generate_speech(
             logger.error(f"Error fetching student name for TTS: {e}")
 
     voice_id = request.voice_id
-    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS", "rHzpDFOsbm9Cy1gYfoVllk38", "ar-msa-female-1"):
+    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS", "rHzpDFOsbm9Cy1gYfoVllk38", "3NQTWYgRxBR3hOgdLtF0U02d", "ar-msa-female-1"):
         if first_name and is_female_student(first_name):
             voice_id = "ar-msa-female-1"
             logger.info(f"TTS: Student '{first_name}' detected as Female. Using voice ar-msa-female-1.")
         else:
-            voice_id = "rHzpDFOsbm9Cy1gYfoVllk38"
-            logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice rHzpDFOsbm9Cy1gYfoVllk38.")
+            voice_id = "3NQTWYgRxBR3hOgdLtF0U02d"
+            logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice 3NQTWYgRxBR3hOgdLtF0U02d.")
 
     generator = stream_munsit_audio(request.text, voice_id, request.speed)
     return StreamingResponse(generator, media_type="audio/wav")
@@ -212,7 +212,7 @@ async def generate_speech(
 @router.get("", summary="Convert Text to Speech via GET")
 async def generate_speech_get(
     text: str,
-    voice_id: str = "rHzpDFOsbm9Cy1gYfoVllk38",
+    voice_id: str = "3NQTWYgRxBR3hOgdLtF0U02d",
     speed: float = 1.0,
     token: Optional[str] = None,
     current_user: TokenPayload = Depends(get_current_user_from_token),
@@ -234,13 +234,13 @@ async def generate_speech_get(
         except Exception as e:
             logger.error(f"Error fetching student name for TTS: {e}")
 
-    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS", "rHzpDFOsbm9Cy1gYfoVllk38", "ar-msa-female-1"):
+    if voice_id in ("ar-najdi-male-2", "pCKbQ4EPGE06zpEPGNvS", "rHzpDFOsbm9Cy1gYfoVllk38", "3NQTWYgRxBR3hOgdLtF0U02d", "ar-msa-female-1"):
         if first_name and is_female_student(first_name):
             voice_id = "ar-msa-female-1"
             logger.info(f"TTS: Student '{first_name}' detected as Female. Using voice ar-msa-female-1.")
         else:
-            voice_id = "rHzpDFOsbm9Cy1gYfoVllk38"
-            logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice rHzpDFOsbm9Cy1gYfoVllk38.")
+            voice_id = "3NQTWYgRxBR3hOgdLtF0U02d"
+            logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice 3NQTWYgRxBR3hOgdLtF0U02d.")
 
     generator = stream_munsit_audio(text, voice_id, speed)
     return StreamingResponse(generator, media_type="audio/wav")
