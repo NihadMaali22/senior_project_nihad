@@ -257,9 +257,19 @@ async function speak(text) {
 }
 
 async function speakViaMunsit(text) {
+    // 1. Try the instant streaming GET method first
+    const getOk = await tryMunsitGet(text);
+    if (getOk) return true;
+
+    // 2. If GET fails (e.g. server not rebuilt/restarted yet), fall back to POST
+    console.warn("Munsit GET streaming failed or not supported. Falling back to POST blob request...");
+    const postOk = await tryMunsitPost(text);
+    return postOk;
+}
+
+async function tryMunsitGet(text) {
     return new Promise((resolve) => {
         try {
-            // Use streaming GET request with token query parameter for instant playback
             const url = `${API_BASE}/tts?text=${encodeURIComponent(text)}&voice_id=ar-najdi-male-2&speed=${voiceSpeed}&token=${encodeURIComponent(jwtToken)}`;
             currentAudio = new Audio(url);
             
@@ -271,7 +281,7 @@ async function speakViaMunsit(text) {
                 }
             };
             currentAudio.onerror = (e) => {
-                console.error('Munsit Audio streaming error:', e);
+                console.warn('Munsit GET streaming audio error:', e);
                 if (!resolved) {
                     resolved = true;
                     resolve(false);
@@ -282,17 +292,48 @@ async function speakViaMunsit(text) {
             };
             
             currentAudio.play().catch(err => {
-                console.error('Audio playback failed:', err);
+                console.warn('Munsit GET playback play() promise rejected:', err);
                 if (!resolved) {
                     resolved = true;
                     resolve(false);
                 }
             });
         } catch (e) {
-            console.error('Munsit TTS error:', e);
+            console.error('Munsit GET exception:', e);
             resolve(false);
         }
     });
+}
+
+async function tryMunsitPost(text) {
+    try {
+        const res = await fetch(`${API_BASE}/tts`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${jwtToken}`,
+            },
+            body: JSON.stringify({ text, voice_id: 'ar-najdi-male-2', speed: voiceSpeed }),
+        });
+        if (!res.ok) {
+            const errBody = await res.text();
+            console.error(`Munsit POST TTS failed: ${res.status}`, errBody);
+            return false;
+        }
+        const blob = await res.blob();
+        if (!blob || blob.size < 100) {
+            console.warn('Munsit POST returned empty or too-small audio blob:', blob?.size);
+            return false;
+        }
+        const url  = URL.createObjectURL(blob);
+        currentAudio = new Audio(url);
+        currentAudio.play();
+        currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
+        return true;
+    } catch (e) {
+        console.error('Munsit POST exception:', e);
+        return false;
+    }
 }
 
 function speakViaBrowser(text, lang) {
