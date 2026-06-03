@@ -257,6 +257,77 @@ async function speak(text) {
 }
 
 async function speakViaMunsit(text) {
+    // 1. Try the instant streaming GET method first
+    const getOk = await tryMunsitGet(text);
+    if (getOk) return true;
+
+    // 2. If GET fails (e.g. server not rebuilt/restarted yet), fall back to POST
+    console.warn("Munsit GET streaming failed or not supported. Falling back to POST blob request...");
+    const postOk = await tryMunsitPost(text);
+    return postOk;
+}
+
+async function tryMunsitGet(text) {
+    return new Promise((resolve) => {
+        try {
+            const url = `${API_BASE}/tts?text=${encodeURIComponent(text)}&voice_id=ar-najdi-male-2&speed=${voiceSpeed}&token=${encodeURIComponent(jwtToken)}`;
+            currentAudio = new Audio(url);
+            
+            // Set playback speed
+            currentAudio.defaultPlaybackRate = voiceSpeed;
+            currentAudio.playbackRate = voiceSpeed;
+            
+            let resolved = false;
+            
+            // Safety timeout: if it takes more than 1.5s to start playing, fallback to POST
+            const timeoutId = setTimeout(() => {
+                if (!resolved) {
+                    console.warn("Munsit GET request timed out (1.5s). Falling back to POST...");
+                    resolved = true;
+                    if (currentAudio) {
+                        currentAudio.pause();
+                        currentAudio = null;
+                    }
+                    resolve(false);
+                }
+            }, 1500);
+
+            currentAudio.onplay = () => {
+                clearTimeout(timeoutId);
+                currentAudio.playbackRate = voiceSpeed; // re-apply speed on play
+                if (!resolved) {
+                    resolved = true;
+                    resolve(true);
+                }
+            };
+            currentAudio.onerror = (e) => {
+                clearTimeout(timeoutId);
+                console.warn('Munsit GET streaming audio error:', e);
+                if (!resolved) {
+                    resolved = true;
+                    resolve(false);
+                }
+            };
+            currentAudio.onended = () => {
+                currentAudio = null;
+            };
+            
+            currentAudio.play().catch(err => {
+                clearTimeout(timeoutId);
+                console.warn('Munsit GET playback play() promise rejected:', err);
+                if (!resolved) {
+                    resolved = true;
+                    resolve(false);
+                }
+            });
+        } catch (e) {
+            console.error('Munsit GET exception:', e);
+            resolve(false);
+        }
+    });
+}
+
+async function tryMunsitPost(text) {
     try {
         const res = await fetch(`${API_BASE}/tts`, {
             method: 'POST',
@@ -268,23 +339,31 @@ async function speakViaMunsit(text) {
         });
         if (!res.ok) {
             const errBody = await res.text();
-            console.error(`Munsit TTS failed: ${res.status}`, errBody);
+            console.error(`Munsit POST TTS failed: ${res.status}`, errBody);
             return false;
         }
         const blob = await res.blob();
         if (!blob || blob.size < 100) {
-            console.warn('Munsit returned empty or too-small audio blob:', blob?.size);
+            console.warn('Munsit POST returned empty or too-small audio blob:', blob?.size);
             return false;
         }
         const url  = URL.createObjectURL(blob);
         currentAudio = new Audio(url);
+        
+        // Set playback speed
+        currentAudio.defaultPlaybackRate = voiceSpeed;
+        currentAudio.playbackRate = voiceSpeed;
+        
+        currentAudio.onplay = () => {
+            currentAudio.playbackRate = voiceSpeed; // re-apply speed on play
+        };
         currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
         currentAudio.play().catch(err => {
-            console.error('Munsit playback play() promise rejected:', err);
+            console.error('Munsit POST playback play() promise rejected:', err);
         });
         return true;
     } catch (e) {
-        console.error('Munsit TTS error:', e);
+        console.error('Munsit POST exception:', e);
         return false;
     }
 }

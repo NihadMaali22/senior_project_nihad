@@ -207,7 +207,11 @@ async def generate_speech(
             logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice 3NQTWYgRxBR3hOgdLtF0U02d.")
 
     generator = stream_munsit_audio(request.text, voice_id, request.speed)
-    return StreamingResponse(generator, media_type="audio/wav")
+    return StreamingResponse(
+        generator, 
+        media_type="audio/wav", 
+        headers={"X-Accel-Buffering": "no"}
+    )
 
 @router.get("", summary="Convert Text to Speech via GET")
 async def generate_speech_get(
@@ -243,4 +247,8 @@ async def generate_speech_get(
             logger.info(f"TTS: Student '{first_name}' detected as Male or fallback. Using voice 3NQTWYgRxBR3hOgdLtF0U02d.")
 
     generator = stream_munsit_audio(text, voice_id, speed)
-    return StreamingResponse(generator, media_type="audio/wav")
+    return StreamingResponse(
+        generator, 
+        media_type="audio/wav", 
+        headers={"X-Accel-Buffering": "no"}
+    )
