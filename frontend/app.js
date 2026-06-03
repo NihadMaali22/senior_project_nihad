@@ -342,6 +342,14 @@ function appendWelcomeMessage() {
 }
 
 // ── Message helpers ───────────────────────────────────────────
+function getCleanSpeechText(bubbleElement) {
+    const p = bubbleElement.querySelector('p:not(.error-msg)');
+    if (p) return p.textContent;
+    const clone = bubbleElement.cloneNode(true);
+    clone.querySelector('.response-metadata')?.remove();
+    return clone.textContent.trim();
+}
+
 function appendMessage(type, htmlContent) {
     const div = document.createElement('div');
     div.className = `message ${type}`;
@@ -352,7 +360,15 @@ function appendMessage(type, htmlContent) {
                     <img src="robot.png" alt="Mascot">
                 </div>
                 <div class="bubble">${htmlContent}</div>
+                <button class="msg-play-btn" title="Play speech / تشغيل الصوت"><i class="ph ph-speaker-high"></i></button>
             </div>`;
+            
+        const playBtn = div.querySelector('.msg-play-btn');
+        playBtn.addEventListener('click', () => {
+            const bubble = div.querySelector('.bubble');
+            const cleanText = getCleanSpeechText(bubble);
+            speak(cleanText);
+        });
     } else {
         div.innerHTML = `<div class="bubble">${htmlContent}</div>`;
     }
@@ -576,6 +592,19 @@ async function sendStreaming(question, typingMsg) {
         }
         appendMetadata(bubble, metadata);
     }
+
+    const wrapper = bubble.parentNode;
+    if (wrapper && wrapper.classList.contains('message-wrapper')) {
+        const playBtn = document.createElement('button');
+        playBtn.className = 'msg-play-btn';
+        playBtn.title = 'Play speech / تشغيل الصوت';
+        playBtn.innerHTML = '<i class="ph ph-speaker-high"></i>';
+        playBtn.addEventListener('click', () => {
+            speak(metadata?.answer || fullAnswer);
+        });
+        wrapper.appendChild(playBtn);
+    }
+
     speak(metadata?.answer || fullAnswer);
 }
 

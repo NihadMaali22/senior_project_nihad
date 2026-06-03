@@ -852,3 +852,37 @@ details.collapsible li { margin-bottom: 5px; color: var(--text-muted); font-size
     .header-actions { gap: 4px; }
     .message { max-width: 90%; }
 }
+
+/* ── Message Play Button ──────────────────────────────────── */
+.msg-play-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    transition: all 0.2s ease;
+    opacity: 0.7;
+    margin: 0 4px;
+}
+
+.msg-play-btn:hover {
+    background: rgba(30, 41, 101, 0.08);
+    color: var(--primary);
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+[dir="rtl"] .msg-play-btn {
+    margin-right: 6px;
+    margin-left: 0;
+}
+[dir="ltr"] .msg-play-btn {
+    margin-left: 6px;
+    margin-right: 0;
+}
