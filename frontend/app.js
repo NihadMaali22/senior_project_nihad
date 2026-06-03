@@ -274,13 +274,29 @@ async function tryMunsitGet(text) {
             currentAudio = new Audio(url);
             
             let resolved = false;
+            
+            // Safety timeout: if it takes more than 1.5s to start playing, fallback to POST
+            const timeoutId = setTimeout(() => {
+                if (!resolved) {
+                    console.warn("Munsit GET request timed out (1.5s). Falling back to POST...");
+                    resolved = true;
+                    if (currentAudio) {
+                        currentAudio.pause();
+                        currentAudio = null;
+                    }
+                    resolve(false);
+                }
+            }, 1500);
+
             currentAudio.onplay = () => {
+                clearTimeout(timeoutId);
                 if (!resolved) {
                     resolved = true;
                     resolve(true);
                 }
             };
             currentAudio.onerror = (e) => {
+                clearTimeout(timeoutId);
                 console.warn('Munsit GET streaming audio error:', e);
                 if (!resolved) {
                     resolved = true;
@@ -292,6 +308,7 @@ async function tryMunsitGet(text) {
             };
             
             currentAudio.play().catch(err => {
+                clearTimeout(timeoutId);
                 console.warn('Munsit GET playback play() promise rejected:', err);
                 if (!resolved) {
                     resolved = true;
@@ -327,8 +344,10 @@ async function tryMunsitPost(text) {
         }
         const url  = URL.createObjectURL(blob);
         currentAudio = new Audio(url);
-        currentAudio.play();
         currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
+        currentAudio.play().catch(err => {
+            console.error('Munsit POST playback play() promise rejected:', err);
+        });
         return true;
     } catch (e) {
         console.error('Munsit POST exception:', e);
