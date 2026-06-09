@@ -46,26 +46,22 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_COLLECTION: str = "university_regulations"
+    QDRANT_COLLECTION: str = "university_regulations_multilingual"
     QDRANT_GRPC_PORT: int = 6334
 
     # ---- Ollama (Local LLM) ----
-    # OLLAMA_URL: str = "http://localhost:11434"
-    # OLLAMA_MODEL: str = "llama3.1:8b"
-    # OLLAMA_TIMEOUT: int = 120
+    OLLAMA_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "phi3:mini"
+    OLLAMA_TIMEOUT: int = 30
 
-    # ---- Gemini API ----
-    GEMINI_API_KEY: str = "AIzaSyCiexVZaLFDJMPF1QR_wtaC5Es1OWtd0IQ"
-    GEMINI_MODEL: str = "gemini-flash-latest"
-    GEMINI_TIMEOUT: int = 90
 
     # ---- Groq API ----
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "qwen/qwen3-32b"
 
     # ---- Embedding Models ----
-    DENSE_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    DENSE_EMBEDDING_DIM: int = 384
+    DENSE_EMBEDDING_MODEL: str = "intfloat/multilingual-e5-base"
+    DENSE_EMBEDDING_DIM: int = 768
     SPARSE_EMBEDDING_MODEL: str = "prithivida/Splade_PP_en_v1"
     RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 

@@ -31,5 +31,5 @@ RERANKER_MODEL = settings.RERANKER_MODEL             # "cross-encoder/ms-marco-M
 # ============================================================
 # Some models (e.g., E5 family) require prefixes for queries vs documents
 # For MiniLM, no prefix is needed; for E5, use "query: " and "passage: "
-QUERY_PREFIX = ""
-DOCUMENT_PREFIX = ""
+QUERY_PREFIX = "query: "
+DOCUMENT_PREFIX = "passage: "

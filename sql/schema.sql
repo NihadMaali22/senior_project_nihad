@@ -77,7 +77,6 @@ CREATE TABLE IF NOT EXISTS students (
     department_id       INTEGER REFERENCES departments(id) ON DELETE SET NULL,
     enrollment_year     INTEGER NOT NULL,
     total_credits       INTEGER DEFAULT 0,             -- Total earned credit hours
-    gpa                 NUMERIC(4,3) DEFAULT 0.000,    -- Cumulative GPA (0.000 - 4.000)
     status              VARCHAR(30) DEFAULT 'active',   -- active, graduated, suspended, withdrawn
     academic_standing   VARCHAR(30) DEFAULT 'good',     -- good, probation, warning, dismissal
     advisor_id          INTEGER REFERENCES instructors(id) ON DELETE SET NULL,

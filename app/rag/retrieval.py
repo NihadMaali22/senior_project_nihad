@@ -22,17 +22,47 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
+import httpx
+import torch
 from haystack import Document, Pipeline
 from haystack.components.embedders import SentenceTransformersTextEmbedder
 from haystack.components.rankers import TransformersSimilarityRanker
+from haystack.utils import ComponentDevice
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 
 from app.config import get_settings
 from app.rag.document_store import get_document_store
-from app.rag.embedders import DENSE_MODEL, RERANKER_MODEL
+from app.rag.embedders import DENSE_MODEL, RERANKER_MODEL, QUERY_PREFIX
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Module-level fallback HTTP client (used when app.state is unavailable)
+_fallback_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """
+    Return the shared httpx.AsyncClient stored on app.state.
+    Falls back to a module-level reusable client (tests / CLI).
+    """
+    try:
+        from app.main import app  # noqa: PLC0415
+        client = getattr(app.state, "http_client", None)
+        if client is not None:
+            return client
+    except Exception:
+        pass
+    global _fallback_http_client
+    if _fallback_http_client is None or _fallback_http_client.is_closed:
+        _fallback_http_client = httpx.AsyncClient(
+            timeout=float(settings.OLLAMA_TIMEOUT),
+        )
+    return _fallback_http_client
+
+# ---- GPU / CPU device selection ----
+_DEVICE = ComponentDevice.from_str("cuda:0") if torch.cuda.is_available() else ComponentDevice.from_str("cpu")
+logger.info(f"Retrieval pipeline device: {'cuda:0' if torch.cuda.is_available() else 'cpu'}")
 
 # Cache the pipeline after first build
 _retrieval_pipeline: Optional[Pipeline] = None
@@ -56,7 +86,9 @@ def build_retrieval_pipeline() -> Pipeline:
     # 1. Dense query embedder
     text_embedder = SentenceTransformersTextEmbedder(
         model=DENSE_MODEL,
+        prefix=QUERY_PREFIX,
         progress_bar=False,
+        device=_DEVICE,
     )
 
     # 2. Dense retriever from Qdrant
@@ -69,6 +101,7 @@ def build_retrieval_pipeline() -> Pipeline:
     ranker = TransformersSimilarityRanker(
         model=RERANKER_MODEL,
         top_k=settings.RAG_RERANK_TOP_K,  # Keep top 5 after reranking
+        device=_DEVICE,
     )
 
     # Build pipeline
@@ -95,11 +128,10 @@ def get_retrieval_pipeline() -> Pipeline:
 
 async def translate_query_if_arabic(query: str) -> str:
     """Translate the query to English if it contains Arabic characters."""
-    if not any(u'\u0600' <= char <= u'\u06FF' for char in query):
+    if not any('\u0600' <= char <= '\u06FF' for char in query):
         return query
 
     import re
-    import httpx
 
     prompt = (
         f"Translate the following Arabic academic question from a student into clear English "
@@ -107,6 +139,8 @@ async def translate_query_if_arabic(query: str) -> str:
         f"nothing else. Do not include quotes.\n\n"
         f"Question: {query}"
     )
+
+    http_client = _get_http_client()
 
     # 1. Try Groq if configured
     if settings.GROQ_API_KEY:
@@ -121,16 +155,13 @@ async def translate_query_if_arabic(query: str) -> str:
                     }
                 ],
                 "temperature": 0.1,
-                "max_completion_tokens": 100,
-                "reasoning_effort": "none"
+                "max_completion_tokens": 100
             }
             headers = {
                 "Authorization": f"Bearer {settings.GROQ_API_KEY}",
                 "Content-Type": "application/json"
             }
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                
+            response = await http_client.post(url, json=payload, headers=headers, timeout=5.0)
             if response.status_code == 200:
                 res_json = response.json()
                 translation = res_json['choices'][0]['message']['content'].strip()
@@ -144,42 +175,6 @@ async def translate_query_if_arabic(query: str) -> str:
         except Exception as e:
             logger.warning(f"Failed to translate query via Groq: {e}")
 
-    # 2. Fallback to Gemini if configured
-    if settings.GEMINI_API_KEY:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
-            payload = {
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": prompt}
-                        ]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "maxOutputTokens": 100
-                }
-            }
-            
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.post(
-                    url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                
-            if response.status_code == 200:
-                res_json = response.json()
-                translation = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-                # Strip think blocks if any
-                translation = re.sub(r"<think>.*?</think>", "", translation, flags=re.DOTALL).strip()
-                translation = translation.strip('"\'')
-                logger.info(f"Translated query for retrieval (via Gemini): '{query}' -> '{translation}'")
-                return translation
-        except Exception as e:
-            logger.warning(f"Failed to translate query via Gemini: {e}")
-    
     return query
 
 
@@ -209,8 +204,8 @@ async def retrieve_documents(
     """
     pipeline = get_retrieval_pipeline()
 
-    # Translate query to English if it is in Arabic
-    search_query = await translate_query_if_arabic(query)
+    # For native multilingual RAG, search directly in the query's original language.
+    search_query = query
 
     logger.info(f"Retrieving documents for query: '{search_query[:80]}...' (original: '{query[:80]}')")
 

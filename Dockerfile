@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --default-timeout=1000 --no-cache-dir --prefix=/install -r requirements.txt
 
 # --- Stage 2: Production ---
 FROM python:3.11-slim AS production

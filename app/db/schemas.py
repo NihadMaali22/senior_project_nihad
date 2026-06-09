@@ -207,7 +207,7 @@ class AskResponse(BaseModel):
     answer: str = Field(..., description="The generated answer")
     decision: Optional[DecisionOutcome] = Field(None, description="Decision outcome if applicable")
     reasoning: List[str] = Field(default_factory=list, description="Step-by-step reasoning")
-    student_data: Optional[Dict[str, Any]] = Field(None, description="Relevant student data used")
+    student_data: Optional[Any] = Field(None, description="Relevant student data used")
     citations: List[Citation] = Field(default_factory=list, description="Regulation citations")
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Confidence score")
     query_type: QueryType = Field(..., description="How the query was classified")

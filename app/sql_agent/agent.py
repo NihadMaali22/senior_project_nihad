@@ -341,10 +341,10 @@ def classify_query_type(question: str) -> str:
     has_course = extract_course_code(question) is not None
 
     if has_course:
-        if any(kw in question_lower for kw in ["can i take", "can i register", "eligible", "can i enroll"]):
+        if any(kw in question_lower for kw in ["can i take", "can i register", "eligible", "can i enroll", "تسجيل", "أسجل", "مؤهل", "يحق لي", "هل يمكنني"]):
             return "check_eligibility"
-        if any(kw in question_lower for kw in ["prerequisites", "prereq", "required before"]):
-            if any(kw in question_lower for kw in ["met", "have i", "did i"]):
+        if any(kw in question_lower for kw in ["prerequisites", "prereq", "required before", "متطلب", "متطلبات", "قبل"]):
+            if any(kw in question_lower for kw in ["met", "have i", "did i", "أخذت", "خلصت", "أنهيت"]):
                 return "check_prerequisites"
             return "get_prerequisites"
 
@@ -385,7 +385,7 @@ async def execute_sql_query(
 
     try:
         if query_type == "get_student_info" and student_id:
-            data = await queries.get_student_info(session, student_id)
+            data = await queries.get_full_student_profile(session, student_id)
         elif query_type == "get_gpa" and student_id:
             data = await queries.get_student_gpa(session, student_id)
         elif query_type == "get_completed_courses" and student_id:

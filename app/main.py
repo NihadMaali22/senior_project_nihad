@@ -53,13 +53,17 @@ async def lifespan(app: FastAPI):
     Shutdown:
     - Close database connections
     """
+    import torch
+    gpu_status = f"cuda:0 — {torch.cuda.get_device_name(0)}" if torch.cuda.is_available() else "CPU only"
     logger.info("=" * 60)
     logger.info(f"  {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"  Debug: {settings.DEBUG}")
     logger.info(f"  Database: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
     logger.info(f"  Qdrant: {settings.QDRANT_URL}")
-    logger.info(f"  Gemini API (model: {settings.GEMINI_MODEL})")
+    logger.info(f"  Groq: {settings.GROQ_MODEL}")
+    logger.info(f"  Ollama: {settings.OLLAMA_MODEL} at {settings.OLLAMA_URL}")
     logger.info(f"  Dense Model: {settings.DENSE_EMBEDDING_MODEL}")
+    logger.info(f"  GPU: {gpu_status}")
     logger.info("=" * 60)
 
     # Startup: Initialize database
@@ -74,10 +78,10 @@ async def lifespan(app: FastAPI):
     # Startup: Create shared httpx client for external APIs (reused across all requests)
     settings_obj = get_settings()
     app.state.http_client = httpx.AsyncClient(
-        timeout=float(settings_obj.GEMINI_TIMEOUT),
+        timeout=float(settings_obj.OLLAMA_TIMEOUT),
         limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
     )
-    logger.info("Shared HTTP client created for external API calls (Gemini)")
+    logger.info("Shared HTTP client created for external API calls")
 
     yield
 

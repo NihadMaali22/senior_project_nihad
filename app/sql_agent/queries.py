@@ -31,21 +31,135 @@ from app.db.models import (
 logger = logging.getLogger(__name__)
 
 
-async def get_student_info(session: AsyncSession, student_id: int) -> Optional[dict[str, Any]]:
-    """
-    Retrieve complete student profile including department info.
+# ============================================================
+# GPA Computation Helper
+# ============================================================
+_GRADE_POINTS: dict[str, float] = {
+    "A": 4.0, "A-": 3.7,
+    "B+": 3.3, "B": 3.0, "B-": 2.7,
+    "C+": 2.3, "C": 2.0, "C-": 1.7,
+    "D+": 1.3, "D": 1.0,
+    "F": 0.0,
+}
 
-    Returns:
-        Dict with student details or None if not found.
+
+def _derive_academic_standing(gpa: float) -> str:
+    """Derive academic standing label from GPA."""
+    if gpa < 1.0:
+        return "dismissal"
+    elif gpa < 1.5:
+        return "probation"       # severe
+    elif gpa < 2.0:
+        return "probation"
+    else:
+        return "good"
+
+
+async def _compute_gpa_from_enrollments(
+    session: AsyncSession,
+    student_id: int,
+) -> tuple[float, int]:
+    """
+    Compute GPA and total earned credits directly from the enrollments table.
+
+    Uses the weighted formula:
+        GPA = Σ(grade_points × course_credits) / Σ(course_credits)
+
+    Only completed enrollments with a numeric grade_points value are included.
+    Returns (gpa, total_credits_earned).
+    """
+    result = await session.execute(
+        select(Enrollment, Course)
+        .join(Course, Enrollment.course_id == Course.id)
+        .where(
+            Enrollment.student_id == student_id,
+            Enrollment.status == "completed",
+            Enrollment.grade_points.is_not(None),
+        )
+    )
+    rows = result.all()
+
+    if not rows:
+        return 0.0, 0
+
+    total_quality_points = 0.0
+    total_credits = 0
+
+    for enrollment, course in rows:
+        gp = float(enrollment.grade_points)
+        cr = int(course.credits)
+        total_quality_points += gp * cr
+        total_credits += cr
+
+    gpa = round(total_quality_points / total_credits, 3) if total_credits > 0 else 0.0
+    return gpa, total_credits
+
+
+async def get_full_student_profile(session: AsyncSession, student_id: int) -> Optional[dict[str, Any]]:
+    """
+    Fetch student base info, compute GPA, and bucket enrollments
+    into completed and current in a single database query over enrollments.
     """
     result = await session.execute(
         select(Student)
-        .options(selectinload(Student.department))
+        .options(selectinload(Student.department), selectinload(Student.advisor))
         .where(Student.id == student_id)
     )
     student = result.scalar_one_or_none()
     if student is None:
         return None
+
+    enroll_result = await session.execute(
+        select(Enrollment, Course)
+        .join(Course, Enrollment.course_id == Course.id)
+        .where(Enrollment.student_id == student_id)
+        .order_by(Enrollment.academic_year, Enrollment.semester)
+    )
+    rows = enroll_result.all()
+
+    completed_courses = []
+    current_enrollments = []
+    failed_courses = []
+    
+    total_quality_points = 0.0
+    total_credits = 0
+
+    for enrollment, course in rows:
+        if enrollment.status == "completed":
+            completed_courses.append({
+                "course_code": course.code,
+                "course_name": course.name,
+                "credits": course.credits,
+                "grade": enrollment.grade,
+                "grade_points": float(enrollment.grade_points) if enrollment.grade_points else None,
+                "semester": enrollment.semester,
+                "academic_year": enrollment.academic_year,
+            })
+            if enrollment.grade_points is not None:
+                gp = float(enrollment.grade_points)
+                cr = int(course.credits)
+                total_quality_points += gp * cr
+                total_credits += cr
+        elif enrollment.status in ["enrolled", "in_progress"]:
+            current_enrollments.append({
+                "course_code": course.code,
+                "course_name": course.name,
+                "credits": course.credits,
+                "semester": enrollment.semester,
+                "academic_year": enrollment.academic_year,
+                "status": enrollment.status,
+            })
+        elif enrollment.status == "failed":
+            failed_courses.append({
+                "course_code": course.code,
+                "course_name": course.name,
+                "grade": enrollment.grade,
+                "semester": enrollment.semester,
+                "academic_year": enrollment.academic_year,
+            })
+
+    gpa = round(total_quality_points / total_credits, 3) if total_credits > 0 else 0.0
+    academic_standing = _derive_academic_standing(gpa)
 
     return {
         "id": student.id,
@@ -56,36 +170,81 @@ async def get_student_info(session: AsyncSession, student_id: int) -> Optional[d
         "email": student.email,
         "department": student.department.name if student.department else None,
         "department_code": student.department.code if student.department else None,
+        "advisor_name": student.advisor.name if student.advisor else None,
         "enrollment_year": student.enrollment_year,
-        "total_credits": student.total_credits,
-        "gpa": float(student.gpa),
+        "total_credits": total_credits,
+        "gpa": gpa,
         "status": student.status,
-        "academic_standing": student.academic_standing,
+        "academic_standing": academic_standing,
+        "completed_courses": completed_courses,
+        "current_enrollments": current_enrollments,
+        "failed_courses": failed_courses,
+    }
+
+
+async def get_student_info(session: AsyncSession, student_id: int) -> Optional[dict[str, Any]]:
+    """
+    Retrieve complete student profile including department info.
+    GPA and total_credits are computed dynamically from enrollments
+    to guarantee accuracy regardless of the cached stored field.
+
+    Returns:
+        Dict with student details or None if not found.
+    """
+    result = await session.execute(
+        select(Student)
+        .options(selectinload(Student.department), selectinload(Student.advisor))
+        .where(Student.id == student_id)
+    )
+    student = result.scalar_one_or_none()
+    if student is None:
+        return None
+
+    # ── Compute GPA dynamically (never trust the cached stored field) ──
+    computed_gpa, computed_credits = await _compute_gpa_from_enrollments(session, student_id)
+    # Fall back to 0.0 only if no completed enrollments exist yet
+    gpa = computed_gpa if computed_credits > 0 else 0.0
+    total_credits = computed_credits if computed_credits > 0 else int(student.total_credits)
+    academic_standing = _derive_academic_standing(gpa)
+
+    return {
+        "id": student.id,
+        "student_number": student.student_number,
+        "full_name": student.full_name,
+        "first_name": student.first_name,
+        "last_name": student.last_name,
+        "email": student.email,
+        "department": student.department.name if student.department else None,
+        "department_code": student.department.code if student.department else None,
+        "advisor_name": student.advisor.name if student.advisor else None,
+        "enrollment_year": student.enrollment_year,
+        "total_credits": total_credits,
+        "gpa": gpa,
+        "status": student.status,
+        "academic_standing": academic_standing,
     }
 
 
 async def get_student_gpa(session: AsyncSession, student_id: int) -> Optional[dict[str, Any]]:
-    """Get just the GPA and credit info for a student."""
+    """Get GPA and credit info for a student — always computed from enrollments."""
     result = await session.execute(
-        select(
-            Student.gpa,
-            Student.total_credits,
-            Student.academic_standing,
-            Student.student_number,
-            Student.first_name,
-            Student.last_name,
-        ).where(Student.id == student_id)
+        select(Student).where(Student.id == student_id)
     )
-    row = result.one_or_none()
-    if row is None:
+    student = result.scalar_one_or_none()
+    if student is None:
         return None
 
+    computed_gpa, computed_credits = await _compute_gpa_from_enrollments(session, student_id)
+    gpa = computed_gpa if computed_credits > 0 else 0.0
+    total_credits = computed_credits if computed_credits > 0 else int(student.total_credits)
+    academic_standing = _derive_academic_standing(gpa)
+
     return {
-        "student_number": row.student_number,
-        "full_name": f"{row.first_name} {row.last_name}",
-        "gpa": float(row.gpa),
-        "total_credits": row.total_credits,
-        "academic_standing": row.academic_standing,
+        "student_number": student.student_number,
+        "full_name": f"{student.first_name} {student.last_name}",
+        "gpa": gpa,
+        "total_credits": total_credits,
+        "academic_standing": academic_standing,
     }
 
 
@@ -395,6 +554,9 @@ async def get_graduation_requirements(
     completed_required = sum(1 for c in required_courses if c["completed"])
     total_required = len(required_courses)
 
+    computed_gpa, computed_credits = await _compute_gpa_from_enrollments(session, student_id)
+    gpa = computed_gpa if computed_credits > 0 else 0.0
+
     return {
         "department": student.department_id,
         "min_total_credits": req.min_total_credits,
@@ -404,9 +566,9 @@ async def get_graduation_requirements(
         "requires_internship": req.requires_internship,
         "requires_capstone": req.requires_capstone,
         "student_credits": student.total_credits,
-        "student_gpa": float(student.gpa),
+        "student_gpa": gpa,
         "credits_remaining": max(0, req.min_total_credits - student.total_credits),
-        "gpa_met": float(student.gpa) >= float(req.min_gpa),
+        "gpa_met": gpa >= float(req.min_gpa),
         "required_courses": required_courses,
         "required_courses_completed": completed_required,
         "required_courses_total": total_required,
@@ -592,4 +754,125 @@ async def check_course_eligibility(
         "student": student_info,
         "course": course_info,
         "checks": checks,
+    }
+
+
+# ============================================================
+# GPA Recalculation — Sync cached fields to DB
+# ============================================================
+async def recalculate_student_stats(
+    session: AsyncSession,
+    student_id: int,
+    commit: bool = True,
+) -> dict[str, Any]:
+    """
+    Recompute GPA, total_credits, and academic_standing from enrollments
+    and persist the result back to the students table.
+
+    This keeps the stored fields (used as a cache / denormalized copy) in sync
+    after any grade change, import, or administrative update.
+
+    Args:
+        session: Async DB session.
+        student_id: The student to update.
+        commit: If True, flush and commit the session. Set False when calling
+                inside a larger transaction that will commit later.
+
+    Returns:
+        Dict with the updated values.
+    """
+    # Fetch student
+    result = await session.execute(
+        select(Student).where(Student.id == student_id)
+    )
+    student = result.scalar_one_or_none()
+    if student is None:
+        return {"error": f"Student {student_id} not found"}
+
+    # Compute from enrollments
+    computed_gpa, computed_credits = await _compute_gpa_from_enrollments(session, student_id)
+
+    # Use stored values as baseline if no completed enrollments yet
+    new_credits = computed_credits if computed_credits > 0 else int(student.total_credits)
+    new_standing = _derive_academic_standing(computed_gpa if computed_credits > 0 else 0.0)
+
+    old_credits = int(student.total_credits)
+    old_standing = student.academic_standing
+
+    # Only write if something changed
+    changed = (
+        new_credits != old_credits
+        or new_standing != old_standing
+    )
+
+    if changed:
+        student.total_credits = new_credits  # type: ignore[assignment]
+        student.academic_standing = new_standing
+
+        if commit:
+            await session.flush()
+            await session.commit()
+
+        logger.info(
+            f"[GPA SYNC] student_id={student_id} "
+            f"credits: {old_credits} → {new_credits} | "
+            f"standing: {old_standing} → {new_standing}"
+        )
+    else:
+        logger.debug(f"[GPA SYNC] student_id={student_id} — no change needed")
+
+    return {
+        "student_id": student_id,
+        "student_number": student.student_number,
+        "full_name": student.full_name,
+        "gpa": new_gpa,
+        "total_credits": new_credits,
+        "academic_standing": new_standing,
+        "changed": changed,
+    }
+
+
+async def recalculate_all_students_stats(
+    session: AsyncSession,
+) -> dict[str, Any]:
+    """
+    Recalculate and persist GPA/credits/standing for ALL students.
+    Useful after a bulk grade import or seed.
+
+    Returns a summary dict with counts and list of updated students.
+    """
+    students_result = await session.execute(select(Student.id))
+    student_ids = [row[0] for row in students_result.all()]
+
+    updated = []
+    skipped = []
+    errors = []
+
+    for sid in student_ids:
+        try:
+            result = await recalculate_student_stats(session, sid, commit=False)
+            if result.get("changed"):
+                updated.append(result)
+            else:
+                skipped.append(sid)
+        except Exception as e:
+            logger.error(f"[GPA SYNC] Failed for student_id={sid}: {e}")
+            errors.append({"student_id": sid, "error": str(e)})
+
+    if updated:
+        await session.flush()
+        await session.commit()
+
+    logger.info(
+        f"[GPA SYNC] Batch complete — "
+        f"updated={len(updated)}, skipped={len(skipped)}, errors={len(errors)}"
+    )
+
+    return {
+        "total_students": len(student_ids),
+        "updated": len(updated),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "updated_details": updated,
+        "error_details": errors,
     }

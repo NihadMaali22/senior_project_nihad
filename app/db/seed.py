@@ -330,6 +330,10 @@ async def seed_courses(session: AsyncSession, dept_ids: dict[str, int]) -> dict[
                department_id=dept_ids["CSE"], course_type="capstone",
                description="Implementation, testing, hardware-software integration, project defense, and writing final documentation.",
                min_credits=110, min_gpa=Decimal("2.00")),
+        Course(code="CS490", name="Internship I", credits=3,
+               department_id=dept_ids["CSE"], course_type="internship",
+               description="Practical field training in an approved engineering or IT company.",
+               min_credits=90, min_gpa=Decimal("2.00")),
         Course(code="FREE_ELEC2", name="Free Elective (2)", credits=3,
                department_id=dept_ids["CSE"], course_type="elective",
                description="Second free elective from any university offerings."),
@@ -416,93 +420,81 @@ async def seed_students(
         Student(
             student_number="2020-CSE-001", first_name="Khalid", last_name="Al-Mansoor",
             email="khalid.mansoor@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2020, total_credits=114, gpa=Decimal("3.650"),
-            status="active", academic_standing="good",
+            enrollment_year=2020, total_credits=114, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("ahmad_rashid"),
         ),
         # --- Good student, mid-program ---
         Student(
             student_number="2021-CSE-002", first_name="Noor", last_name="Abdullah",
             email="noor.abdullah@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2021, total_credits=84, gpa=Decimal("3.200"),
-            status="active", academic_standing="good",
+            enrollment_year=2021, total_credits=84, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("sarah_mitchell"),
         ),
         # --- Student on academic probation (low GPA) ---
         Student(
             student_number="2021-CSE-003", first_name="Tariq", last_name="Hassan",
             email="tariq.hassan@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2021, total_credits=49, gpa=Decimal("1.850"),
-            status="active", academic_standing="probation",
+            enrollment_year=2021, total_credits=49, status="active", academic_standing="probation",
             advisor_id=instructor_ids.get("ahmad_rashid"),
         ),
         # --- Freshman, just started ---
         Student(
             student_number="2024-CSE-004", first_name="Lina", last_name="Saeed",
             email="lina.saeed@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2024, total_credits=17, gpa=Decimal("3.800"),
-            status="active", academic_standing="good",
+            enrollment_year=2024, total_credits=17, status="active", academic_standing="good",
         ),
         # --- IT student, steady progress ---
         Student(
             student_number="2022-IT-005", first_name="Mohammed", last_name="Farouk",
             email="mohammed.farouk@students.edu", department_id=dept_ids["IT"],
-            enrollment_year=2022, total_credits=65, gpa=Decimal("2.750"),
-            status="active", academic_standing="good",
+            enrollment_year=2022, total_credits=65, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("omar_hassan"),
         ),
         # --- IT student with warnings ---
         Student(
             student_number="2022-IT-006", first_name="Aya", last_name="Ibrahim",
             email="aya.ibrahim@students.edu", department_id=dept_ids["IT"],
-            enrollment_year=2022, total_credits=55, gpa=Decimal("2.100"),
-            status="active", academic_standing="warning",
+            enrollment_year=2022, total_credits=55, status="active", academic_standing="warning",
             advisor_id=instructor_ids.get("layla_mahmoud"),
         ),
         # --- EE student ---
         Student(
             student_number="2021-EE-007", first_name="Yousef", last_name="Nasser",
             email="yousef.nasser@students.edu", department_id=dept_ids["EE"],
-            enrollment_year=2021, total_credits=92, gpa=Decimal("3.100"),
-            status="active", academic_standing="good",
+            enrollment_year=2021, total_credits=92, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("james_wilson"),
         ),
         # --- BA student ---
         Student(
             student_number="2023-BA-008", first_name="Rania", last_name="Othman",
             email="rania.othman@students.edu", department_id=dept_ids["BA"],
-            enrollment_year=2023, total_credits=35, gpa=Decimal("3.400"),
-            status="active", academic_standing="good",
+            enrollment_year=2023, total_credits=35, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("michael_chen"),
         ),
         # --- Graduated student ---
         Student(
             student_number="2019-CSE-009", first_name="Omar", last_name="Jaber",
             email="omar.jaber@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2019, total_credits=163, gpa=Decimal("3.500"),
-            status="graduated", academic_standing="good",
+            enrollment_year=2019, total_credits=163, status="graduated", academic_standing="good",
         ),
         # --- Suspended student ---
         Student(
             student_number="2020-IT-010", first_name="Salma", last_name="Khoury",
             email="salma.khoury@students.edu", department_id=dept_ids["IT"],
-            enrollment_year=2020, total_credits=40, gpa=Decimal("1.200"),
-            status="suspended", academic_standing="dismissal",
+            enrollment_year=2020, total_credits=40, status="suspended", academic_standing="dismissal",
         ),
         # --- Student who can attempt internship 2 ---
         Student(
             student_number="2020-CSE-011", first_name="Hassan", last_name="Darwish",
             email="hassan.darwish@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2020, total_credits=95, gpa=Decimal("2.900"),
-            status="active", academic_standing="good",
+            enrollment_year=2020, total_credits=95, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("sarah_mitchell"),
         ),
         # --- Student barely above probation threshold ---
         Student(
             student_number="2022-CSE-012", first_name="Dana", last_name="Zaydan",
             email="dana.zaydan@students.edu", department_id=dept_ids["CSE"],
-            enrollment_year=2022, total_credits=60, gpa=Decimal("2.050"),
-            status="active", academic_standing="good",
+            enrollment_year=2022, total_credits=60, status="active", academic_standing="good",
             advisor_id=instructor_ids.get("ahmad_rashid"),
         ),
     ]
@@ -788,6 +780,12 @@ async def seed_enrollments(
                    semester="Spring", academic_year=2024, status="in_progress"),
 
 
+        # ====== Omar (2019-CSE-009) — Graduated ======
+        Enrollment(student_id=student_ids["2019-CSE-009"], course_id=course_ids["CS111"],
+                   semester="Fall", academic_year=2019, status="completed", grade="A", grade_points=Decimal("4.00")),
+        Enrollment(student_id=student_ids["2019-CSE-009"], course_id=course_ids["CSE499B"],
+                   semester="Spring", academic_year=2023, status="completed", grade="A-", grade_points=Decimal("3.70")),
+
         # ====== Lina (2024-CSE-004) — Freshman ======
         # Fall 2024 (17 credits)
         Enrollment(student_id=student_ids["2024-CSE-004"], course_id=course_ids["CS111"],
@@ -853,7 +851,7 @@ async def seed_graduation_requirements(
         "EE321", "EE322", "CS321", "MATH301", "EE313", "UNIV102",
         "EE322L", "CS322", "CS323", "MATH302", "EE312L", "EL201",
         "EE321L", "EE322L2", "EE411", "CS411", "UNIV201",
-        "EE411L", "CS412L", "PHYS201", "EE401", "CSE499A",
+        "EE411L", "CS412L", "PHYS201", "EE401", "CS490", "CSE499A",
         "CSE499B",
     ]
     for code in cse_required:
@@ -1010,3 +1008,6 @@ async def run_seed() -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     asyncio.run(run_seed())
+
+
+

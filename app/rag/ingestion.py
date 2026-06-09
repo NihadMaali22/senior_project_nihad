@@ -23,18 +23,24 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+import torch
 from haystack import Document, Pipeline
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
 from haystack.document_stores.types import DuplicatePolicy
+from haystack.utils import ComponentDevice
 
 from app.config import get_settings
 from app.rag.document_store import get_document_store
-from app.rag.embedders import DENSE_MODEL, SPARSE_MODEL
+from app.rag.embedders import DENSE_MODEL, SPARSE_MODEL, DOCUMENT_PREFIX
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# ---- GPU / CPU device selection ----
+_DEVICE = ComponentDevice.from_str("cuda:0") if torch.cuda.is_available() else ComponentDevice.from_str("cpu")
+logger.info(f"Ingestion pipeline device: {'cuda:0' if torch.cuda.is_available() else 'cpu'}")
 
 
 def _read_text_files(directory: str) -> List[Document]:
@@ -106,8 +112,10 @@ def build_ingestion_pipeline() -> Pipeline:
 
     dense_embedder = SentenceTransformersDocumentEmbedder(
         model=DENSE_MODEL,
+        prefix=DOCUMENT_PREFIX,
         progress_bar=True,
         meta_fields_to_embed=["title"],    # Also embed the title for better retrieval
+        device=_DEVICE,
     )
 
     writer = DocumentWriter(

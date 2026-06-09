@@ -41,7 +41,7 @@ Your task is to analyze the student's question, consider their academic data, re
 6. If the answer is CONDITIONAL, clearly state what conditions must be met.
 7. Be empathetic but factual. Students may be stressed about their academic situation.
 8. Use clear, professional language.
-9. You MUST write your entire response (including reasoning and answer) in Arabic.
+9. You MUST write your entire response in natural, eloquent Arabic (صياغة عربية فصحى سليمة وطبيعية). Use correct academic terminology (e.g. use "الطالب" not "المتدرب", use "الإنذار الأكاديمي" not "الإحتراز الأكاديمي", use "الفصل الأكاديمي" not "الإقالة", use "ساعات معتمدة" or "ساعة معتمدة" for "credits"/"credit hours", and NEVER use "مقاعد" or "أرصدة").
 10. Keep the final ANSWER extremely concise, direct, and to the point. Avoid lengthy explanations or repeating facts unnecessary to the direct answer.
 
 Respond in this EXACT format (but translate the content into Arabic):
@@ -81,7 +81,7 @@ Based on the student's database records below, provide a clear and helpful answe
 2. Present numbers and lists clearly.
 3. If relevant, briefly mention any notable patterns (e.g., GPA trends, missing courses).
 4. Be extremely concise, brief, and direct. Keep the answer under 3-4 sentences.
-5. You MUST respond in Arabic.
+5. You MUST respond in natural, eloquent Arabic (عربي فصيح وسليم). Use standard university terminology (الطالب، المعدل التراكمي، الإنذار الأكاديمي، الفصل الأكاديمي، ساعات معتمدة).
 
 Respond naturally as a helpful academic advisor. Do not make up information not present in the data.
 """
@@ -107,7 +107,7 @@ Based on the official university regulations below, answer the student's questio
 3. If the regulations don't fully cover the question, say so clearly.
 4. Use clear, structured formatting for complex policies.
 5. Keep the response very concise and to the point. Do not write long paragraphs.
-6. You MUST respond in Arabic.
+6. You MUST respond in natural, eloquent Arabic (عربي فصيح وسليم). Use standard university terminology (الطالب، المعدل التراكمي، الإنذار الأكاديمي، الفصل الأكاديمي، ساعات معتمدة).
 
 CITATIONS:
 - Always cite the specific regulation source(s) at the end of your answer.

@@ -26,6 +26,29 @@ from app.db.schemas import QueryType
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Module-level fallback client (used when app.state is unavailable)
+_fallback_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """
+    Return the shared httpx.AsyncClient stored on app.state.
+    Falls back to a module-level reusable client (tests / CLI).
+    """
+    try:
+        from app.main import app  # noqa: PLC0415
+        client = getattr(app.state, "http_client", None)
+        if client is not None:
+            return client
+    except Exception:
+        pass
+    global _fallback_http_client
+    if _fallback_http_client is None or _fallback_http_client.is_closed:
+        _fallback_http_client = httpx.AsyncClient(
+            timeout=float(settings.OLLAMA_TIMEOUT),
+        )
+    return _fallback_http_client
+
 # ============================================================
 # Classification Prompt
 # ============================================================
@@ -139,16 +162,18 @@ def _is_off_topic(question: str) -> bool:
     return False
 
 
-def _keyword_classify(question: str) -> QueryType:
+def _keyword_classify_with_confidence(question: str) -> tuple[QueryType, float, str]:
     """
-    Fallback keyword-based classification when LLM is unavailable.
-    Uses pattern matching to determine query type.
+    Perform keyword-based classification and return a tuple of
+    (QueryType, confidence_score, reasoning).
+    If a specific pattern is matched, confidence is 0.95.
+    If no patterns match, it returns HYBRID with low confidence (0.3).
     """
     q = question.lower().strip()
 
     # ── Off-topic check (first!) ──────────────────────────────
     if _is_off_topic(question):
-        return QueryType.OFF_TOPIC
+        return QueryType.OFF_TOPIC, 0.95, "Matched off-topic patterns by keyword matching."
 
     # SQL-only patterns — pure data lookups
     sql_patterns = [
@@ -218,157 +243,100 @@ def _keyword_classify(question: str) -> QueryType:
     # Check hybrid first (most specific)
     for pattern in hybrid_patterns:
         if re.search(pattern, q):
-            return QueryType.HYBRID
+            return QueryType.HYBRID, 0.95, f"Matched hybrid keyword pattern: '{pattern}'"
 
     # Then RAG
     for pattern in rag_patterns:
         if re.search(pattern, q):
-            return QueryType.RAG_ONLY
+            return QueryType.RAG_ONLY, 0.95, f"Matched RAG keyword pattern: '{pattern}'"
 
     # Then SQL
     for pattern in sql_patterns:
         if re.search(pattern, q):
-            return QueryType.SQL_ONLY
+            return QueryType.SQL_ONLY, 0.95, f"Matched SQL keyword pattern: '{pattern}'"
 
-    # Default to HYBRID (safest — considers all data sources)
-    return QueryType.HYBRID
+    # Default to HYBRID (safest — considers all data sources) with low confidence
+    return QueryType.HYBRID, 0.3, "No keyword pattern matched. Defaulting with low confidence."
+
+
+def _keyword_classify(question: str) -> QueryType:
+    """
+    Fallback keyword-based classification when LLM is unavailable.
+    Uses pattern matching to determine query type.
+    """
+    query_type, _, _ = _keyword_classify_with_confidence(question)
+    return query_type
+
+
+from litellm import acompletion
+
+async def _llm_classify(question: str) -> Optional[dict]:
+    """
+    Use Groq (via LiteLLM) to classify the query.
+    Returns None if classification fails or times out.
+    """
+    prompt = CLASSIFICATION_PROMPT.format(question=question)
+    
+    try:
+        logger.info(f"Sending classification request to Groq model: {settings.GROQ_MODEL}")
+        
+        response = await acompletion(
+            model=f"groq/{settings.GROQ_MODEL}",
+            messages=[{"role": "user", "content": prompt}],
+            api_key=settings.GROQ_API_KEY,
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        parsed = _parse_classification_response(response_text)
+        if parsed:
+            parsed["method"] = "llm"
+            return parsed
+            
+        logger.warning(f"Could not parse LLM classification response: {response_text[:200]}")
+        return None
+    except Exception as e:
+        logger.warning(f"LLM classification error: {e}")
+        return None
 
 
 async def classify_query(question: str) -> dict:
     """
-    Classify a user's question using the Ollama LLM.
-    Falls back to keyword-based classification if LLM is unavailable.
+    Classify a user's question. Try keyword-based matching first.
+    If confidence is low, call local Ollama (Phi-3-Mini) for classification.
+    Falls back to keyword matching if Ollama is unavailable.
 
     Args:
         question: The user's natural language question.
 
     Returns:
-        Dict with 'query_type', 'confidence', and 'reasoning'.
+        Dict with 'query_type', 'confidence', 'reasoning', and 'method'.
     """
-    # Use fast keyword-based classification (skips LLM call to save ~10-30s)
-    # The keyword classifier covers all major query patterns reliably.
-    # To re-enable LLM classification, uncomment the block below.
-    #
-    # try:
-    #     result = await _llm_classify(question)
-    #     if result is not None:
-    #         return result
-    # except Exception as e:
-    #     logger.warning(f"LLM classification failed, using fallback: {e}")
-
-    query_type = _keyword_classify(question)
+    query_type, confidence, reasoning = _keyword_classify_with_confidence(question)
+    
+    if confidence >= 0.7:
+        return {
+            "query_type": query_type,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "method": "keyword",
+        }
+    
+    logger.info(f"Low confidence ({confidence}) in keyword matching. Calling local Ollama...")
+    result = await _llm_classify(question)
+    if result is not None:
+        return result
+        
+    logger.info("Ollama classification unavailable or failed. Falling back to keyword classification.")
     return {
         "query_type": query_type,
-        "confidence": 0.85,
-        "reasoning": f"Classified by keyword matching. Type: {query_type.value}",
-        "method": "keyword",
+        "confidence": confidence,
+        "reasoning": f"{reasoning} (Ollama fallback)",
+        "method": "keyword_fallback",
     }
 
-
-async def _llm_classify(question: str) -> Optional[dict]:
-    """
-    Use Groq API (if configured) or Gemini API to classify the query.
-    Returns None if classification fails.
-    """
-    prompt = CLASSIFICATION_PROMPT.format(question=question)
-
-    if settings.GROQ_API_KEY:
-        try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            payload = {
-                "model": settings.GROQ_MODEL,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                "temperature": 0.1,
-                "max_completion_tokens": 150,
-                "reasoning_effort": "none"
-            }
-            headers = {
-                "Authorization": f"Bearer {settings.GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                
-            if response.status_code != 200:
-                logger.warning(f"Groq API returned status {response.status_code} during classification")
-                return None
-                
-            res_json = response.json()
-            try:
-                response_text = res_json['choices'][0]['message']['content']
-                # Strip think blocks
-                response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
-            except (KeyError, IndexError):
-                logger.warning(f"Unexpected Groq classification response: {res_json}")
-                return None
-                
-            parsed = _parse_classification_response(response_text)
-            if parsed:
-                return parsed
-            logger.warning(f"Could not parse Groq classification response: {response_text[:200]}")
-            return None
-        except Exception as e:
-            logger.warning(f"Groq classification error: {e}")
-            return None
-
-    if not settings.GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY is not set. Classification will fallback to keywords.")
-        return None
-
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
-        
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": 150
-            }
-        }
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            )
-
-        if response.status_code != 200:
-            logger.warning(f"Gemini API returned status {response.status_code} during classification")
-            return None
-
-        res_json = response.json()
-        try:
-            response_text = res_json['candidates'][0]['content']['parts'][0]['text']
-        except (KeyError, IndexError):
-            logger.warning(f"Unexpected Gemini classification response: {res_json}")
-            return None
-
-        # Parse the JSON response from the LLM
-        parsed = _parse_classification_response(response_text)
-        if parsed:
-            return parsed
-
-        logger.warning(f"Could not parse LLM classification response: {response_text[:200]}")
-        return None
-
-    except httpx.TimeoutException:
-        logger.warning("Gemini classification timed out")
-        return None
-    except httpx.ConnectError:
-        logger.warning("Could not connect to Gemini API")
-        return None
 
 
 def _parse_classification_response(response_text: str) -> Optional[dict]:
@@ -407,3 +375,4 @@ def _parse_classification_response(response_text: str) -> Optional[dict]:
         "reasoning": data.get("reasoning", "Classified by LLM"),
         "method": "llm",
     }
+

@@ -117,6 +117,7 @@ services:
       OLLAMA_URL: http://ollama:11434
     volumes:
       - ./data:/app/data
+      - huggingface_cache:/home/appuser/.cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,6 +134,8 @@ volumes:
   qdrant_data:
     driver: local
   ollama_data:
+    driver: local
+  huggingface_cache:
     driver: local
 
 networks:

@@ -178,3 +178,72 @@ async def trigger_ingestion(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ingestion failed: {str(e)}",
         )
+
+
+@router.post(
+    "/students/{student_id}/recalculate-gpa",
+    summary="Recalculate Student GPA",
+    description=(
+        "Recompute GPA, total_credits, and academic_standing for a single student "
+        "from their actual enrollment records and persist the result to the database. "
+        "Use this after any grade change or administrative correction."
+    ),
+)
+async def recalculate_student_gpa(
+    student_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    _: TokenPayload = Depends(require_role("admin", "advisor")),
+):
+    """Recalculate and sync GPA for a single student."""
+    from app.sql_agent.queries import recalculate_student_stats
+
+    result = await recalculate_student_stats(session, student_id)
+    if "error" in result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result["error"],
+        )
+    return result
+
+
+@router.post(
+    "/students/recalculate-all-gpa",
+    summary="Recalculate GPA for All Students",
+    description=(
+        "Recompute GPA, total_credits, and academic_standing for ALL students "
+        "from their enrollment records. Use after bulk grade imports or database seeding."
+    ),
+)
+async def recalculate_all_gpa(
+    session: AsyncSession = Depends(get_db_session),
+    _: TokenPayload = Depends(require_role("admin")),
+):
+    """Recalculate and sync GPA for all students in the system."""
+    from app.sql_agent.queries import recalculate_all_students_stats
+
+    result = await recalculate_all_students_stats(session)
+    return result
+
+
+@router.post(
+    "/conversations/purge",
+    summary="Purge Old Conversations",
+    description=(
+        "Delete all conversation history rows older than `ttl_days` days "
+        "(default: 30). Use this for periodic storage maintenance."
+    ),
+)
+async def purge_conversations(
+    ttl_days: int = 30,
+    session: AsyncSession = Depends(get_db_session),
+    _: TokenPayload = Depends(require_role("admin")),
+):
+    """Delete old conversation history rows to reclaim DB storage."""
+    from app.memory.conversation import purge_old_conversations
+
+    deleted = await purge_old_conversations(session, ttl_days=ttl_days)
+    return {
+        "deleted_rows": deleted,
+        "ttl_days": ttl_days,
+        "message": f"Deleted {deleted} conversation row(s) older than {ttl_days} days.",
+    }

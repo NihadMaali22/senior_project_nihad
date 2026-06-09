@@ -205,6 +205,10 @@ async def get_student_profile(
     reg_credits_res = await session.execute(reg_credits_query)
     registered_credits = reg_credits_res.scalar() or 0
 
+    from app.sql_agent.queries import _compute_gpa_from_enrollments
+    computed_gpa, _ = await _compute_gpa_from_enrollments(session, student.id)
+    gpa = computed_gpa
+
     return StudentProfileResponse(
         student_id=student.id,
         student_number=student.student_number,
@@ -212,7 +216,7 @@ async def get_student_profile(
         last_name=student.last_name,
         full_name=student.full_name,
         email=student.email,
-        gpa=float(student.gpa),
+        gpa=gpa,
         total_credits=student.total_credits,
         registered_credits=int(registered_credits),
         remaining_credits=int(remaining_credits),

@@ -179,7 +179,6 @@ class Student(Base):
     )
     enrollment_year: Mapped[int] = mapped_column(Integer, nullable=False)
     total_credits: Mapped[int] = mapped_column(Integer, default=0)
-    gpa: Mapped[float] = mapped_column(Numeric(4, 3), default=0.000)
     status: Mapped[str] = mapped_column(String(30), default="active")
     academic_standing: Mapped[str] = mapped_column(String(30), default="good")
     advisor_id: Mapped[Optional[int]] = mapped_column(
@@ -351,13 +350,22 @@ class ConversationHistory(Base):
     __tablename__ = "conversation_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     session_id: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        # Primary lookup: all messages in a session ordered by time (most used query)
+        Index("idx_conv_session_created", "session_id", "created_at"),
+        # Standalone session_id index for COUNT queries (get_session_count)
+        Index("idx_conv_session_id", "session_id"),
+        # Timestamp-only index for TTL purge / cleanup queries
+        Index("idx_conv_created_at", "created_at"),
     )
 
     def __repr__(self) -> str:

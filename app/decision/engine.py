@@ -67,9 +67,66 @@ def _get_http_client() -> httpx.AsyncClient:
     global _fallback_http_client
     if _fallback_http_client is None or _fallback_http_client.is_closed:
         _fallback_http_client = httpx.AsyncClient(
-            timeout=float(settings.GEMINI_TIMEOUT),
+            timeout=float(settings.OLLAMA_TIMEOUT),
         )
     return _fallback_http_client
+
+
+def _needs_rewrite(question: str) -> bool:
+    """
+    Fast heuristic check: does this question reference previous context?
+    Returns True if the question likely needs rewriting (contains pronouns/references).
+    Returns False if it looks self-contained — skip the LLM call entirely.
+
+    This prevents wasting ~2 seconds on Ollama for standalone questions.
+    """
+    q = question.lower().strip()
+
+    # Arabic context-dependent words
+    arabic_indicators = [
+        "هو", "هي", "هم", "هن", "هذا", "هذه", "ذلك", "تلك", "هؤلاء",
+        "ماذا عن", "وماذا", "وكيف", "وهل", "وما", "وأين",
+        "نفس", "نفسه", "نفسها",
+        "المادة التي", "الكورس الذي", "الساعات التي",
+        "قلت", "ذكرت", "أخبرتني", "قلت لي",
+        "أيضاً", "كذلك", "بالإضافة",
+        "منها", "منه", "لها", "له", "فيها", "فيه", "عنها", "عنه",
+        "هل يمكنني", "هل أستطيع",  # could be follow-up
+    ]
+
+    # English context-dependent words
+    english_indicators = [
+        " it ", " its ", " they ", " them ", " their ",
+        " this ", " that ", " these ", " those ",
+        " he ", " she ", " his ", " her ",
+        " same ", " also ", " too ", " as well",
+        "what about", "how about", "and what", "and how", "and can",
+        " the course ", " the class ", " the subject ",  # might refer to prior context
+    ]
+
+    # Sentence starts suggesting follow-up
+    followup_starts = [
+        "and ", "but ", "also ", "so ", "then ", "what about ",
+        "how about ", "can i ", "am i ", "is it ", "are they ",
+        "و", "لكن", "ولكن", "إذن", "هل يمكن", "ماذا عن",
+    ]
+
+    # Check starts
+    for start in followup_starts:
+        if q.startswith(start):
+            return True
+
+    # Check for pronoun/reference indicators
+    padded = f" {q} "
+    for indicator in arabic_indicators:
+        if indicator in padded:
+            return True
+
+    for indicator in english_indicators:
+        if indicator in padded:
+            return True
+
+    return False
 
 
 async def rewrite_follow_up_query(
@@ -78,11 +135,21 @@ async def rewrite_follow_up_query(
 ) -> str:
     """
     Rewrite a follow-up question into a standalone question using conversation context.
-    If the question is already standalone or on error, returns the original question.
+
+    Fast path: If the question looks self-contained (no pronouns/references),
+    skip the LLM call entirely — saving ~2 seconds per request.
+
+    Slow path: Only calls Ollama when the question genuinely references prior context.
     """
     if not conversation_context.strip():
         return question
 
+    # ── Fast path: heuristic says question is already standalone ──────────────
+    if not _needs_rewrite(question):
+        logger.debug(f"[REWRITER] Skipped (standalone heuristic): '{question[:80]}'")
+        return question
+
+    # ── Slow path: ask Ollama to rewrite ──────────────────────────────────────
     prompt = f"""You are an AI assistant helping to rewrite a student's follow-up question into a single standalone question, using the conversation history for context.
 
 Analyze the conversation history and the new question.
@@ -100,21 +167,21 @@ DO NOT add any conversational text, explanations, or labels. Return ONLY the rew
 Standalone Question:"""
 
     try:
-        rewritten = await _call_ollama(prompt)
+        rewritten = await _call_groq(prompt)
         rewritten = rewritten.strip()
-        
+
         # Clean up any potential quotes
         if rewritten.startswith('"') and rewritten.endswith('"'):
             rewritten = rewritten[1:-1].strip()
         elif rewritten.startswith("'") and rewritten.endswith("'"):
             rewritten = rewritten[1:-1].strip()
-        
+
         # Remove labels if any
         for label in ["Standalone Question:", "Question:", "السؤال المستقل:", "السؤال:"]:
             if rewritten.lower().startswith(label.lower()):
                 rewritten = rewritten[len(label):].strip()
 
-        if not rewritten or _ollama_unavailable(rewritten):
+        if not rewritten or _llm_unavailable(rewritten):
             return question
 
         logger.info(f"[REWRITER] original='{question}' -> rewritten='{rewritten}'")
@@ -161,6 +228,11 @@ async def process_query(
     conversation_history = ""
     if session_id:
         conversation_history = await get_conversation_context(session, session_id)
+
+    # Downgrade HYBRID to RAG_ONLY if there is no student_id
+    if query_type == QueryType.HYBRID and student_id is None:
+        logger.info("Downgrading HYBRID to RAG_ONLY because student_id is None")
+        query_type = QueryType.RAG_ONLY
 
     try:
         if query_type == QueryType.SQL_ONLY:
@@ -225,8 +297,8 @@ async def _handle_sql_query(
         conversation_history=conversation_history or "No previous conversation.",
     )
 
-    llm_response = await _call_ollama(prompt)
-    if _ollama_unavailable(llm_response):
+    llm_response = await _call_groq(prompt)
+    if _llm_unavailable(llm_response):
         llm_response = _format_sql_fallback(sql_result)
 
     return AskResponse(
@@ -270,8 +342,8 @@ async def _handle_rag_query(
         conversation_history=conversation_history or "No previous conversation.",
     )
 
-    llm_response = await _call_ollama(prompt)
-    if _ollama_unavailable(llm_response):
+    llm_response = await _call_groq(prompt)
+    if _llm_unavailable(llm_response):
         llm_response = _format_rag_fallback(documents)
 
     # Extract citations from documents
@@ -313,52 +385,170 @@ async def _handle_hybrid_query(
 
     # Step 1 & 2: Run SQL queries and RAG retrieval IN PARALLEL
     async def _fetch_student_data():
-        """Fetch all student data from SQL."""
-        _student_data = {}
-        _prereq_data = {}
-        _eligibility_data = {}
-        _grad_data = {}
+        """
+        Fetch all student data from SQL — optimized with internal parallelism.
 
+        Strategy:
+        - Phase A (parallel): base student info + completed courses + current enrollments
+          run concurrently via asyncio.gather.
+        - Phase B (conditional, parallel): course-specific queries and graduation data
+          are each launched concurrently only when needed, sharing already-fetched data.
+        - Avoids calling check_course_eligibility (which re-fetches student + course info)
+          by building the eligibility dict inline from data we already have.
+        """
         if not student_id:
-            return _student_data, _prereq_data, _eligibility_data, _grad_data
+            return {}, {}, {}, {}
 
         from app.sql_agent import queries
-        _student_data = await queries.get_student_info(session, student_id) or {}
 
-        # Get completed courses
-        completed = await queries.get_completed_courses(session, student_id)
-        _student_data["completed_courses"] = completed
+        # ── Phase A: Fetch all base data in a single optimized query ────────
+        full_profile = await queries.get_full_student_profile(session, student_id)
+        if not full_profile:
+            return {}, {}, {}, {}
+
+        _student_data: dict = full_profile
+        completed = _student_data["completed_courses"]
+        current_enrollments = _student_data["current_enrollments"]
+
         _student_data["completed_course_codes"] = [c["course_code"] for c in completed]
-
-        # Get current enrollments
-        current_enrollments = await queries.get_current_enrollments(session, student_id)
-        _student_data["current_enrollments"] = current_enrollments
         _student_data["current_enrollment_codes"] = [c["course_code"] for c in current_enrollments]
 
-        # Check if question involves a specific course
-        course_code = extract_course_code(query_to_use)
-        if course_code:
-            course_info = await queries.get_course_info(session, course_code)
-            _prereq_data = await queries.check_prerequisites_met(session, student_id, course_code)
-            _eligibility_data = await queries.check_course_eligibility(session, student_id, course_code)
-            _student_data["target_course"] = course_info
-            _student_data["prerequisite_check"] = _prereq_data
-            _student_data["eligibility_check"] = _eligibility_data
+        completed_codes_set = set(_student_data["completed_course_codes"])
 
-        # Check for graduation-related questions
+        _prereq_data: dict = {}
+        _eligibility_data: dict = {}
+        _grad_data: dict = {}
+
+        # ── Phase B: Conditional parallel fetches ─────────────────────────────
+        course_code = extract_course_code(query_to_use)
         q_lower = query_to_use.lower()
         _grad_kws = [
             "graduat", "degree", "requirements", "hours",
             "left", "remain", "missing", "needed", "finish", "complet",
             "متبقي", "تبقى", "مواد", "كورسات", "ساعات", "تخرج", "إنهاء",
         ]
-        if any(kw in q_lower for kw in _grad_kws):
-            _grad_data = await queries.get_graduation_requirements(session, student_id) or {}
+        needs_grad = any(kw in q_lower for kw in _grad_kws)
+
+        async def _fetch_course_data(cc: str):
+            """Fetch course info and prerequisites in parallel."""
+            course_info, prereq = await asyncio.gather(
+                queries.get_course_info(session, cc),
+                queries.check_prerequisites_met(session, student_id, cc),
+            )
+            return course_info, prereq
+
+        async def _fetch_warnings():
+            return await queries.get_student_warnings(session, student_id)
+
+        async def _fetch_grad():
+            return await queries.get_graduation_requirements(session, student_id) or {}
+
+        # Build coroutine list for phase B
+        phase_b_coros = []
+        phase_b_labels = []
+
+        if course_code:
+            phase_b_coros.append(_fetch_course_data(course_code))
+            phase_b_labels.append("course")
+        if needs_grad:
+            phase_b_coros.append(_fetch_grad())
+            phase_b_labels.append("grad")
+        phase_b_coros.append(_fetch_warnings())
+        phase_b_labels.append("warnings")
+
+        phase_b_results = await asyncio.gather(*phase_b_coros)
+        phase_b_map = dict(zip(phase_b_labels, phase_b_results))
+
+        # Process course data
+        if course_code and "course" in phase_b_map:
+            course_info, _prereq_data = phase_b_map["course"]
+            _student_data["target_course"] = course_info
+            _student_data["prerequisite_check"] = _prereq_data
+
+            # Build eligibility inline — avoids re-fetching student + course from DB
+            if course_info and _student_data:
+                elig_checks = []
+                elig_eligible = True
+
+                # Status check
+                if _student_data.get("status") != "active":
+                    elig_eligible = False
+                    elig_checks.append({"check": "student_status", "passed": False,
+                                        "detail": f"Student status is '{_student_data.get('status')}'. Must be 'active' to register."})
+                else:
+                    elig_checks.append({"check": "student_status", "passed": True, "detail": "Student is active."})
+
+                # Academic standing
+                if _student_data.get("academic_standing") == "dismissal":
+                    elig_eligible = False
+                    elig_checks.append({"check": "academic_standing", "passed": False,
+                                        "detail": "Student is dismissed. Cannot register for courses."})
+                else:
+                    elig_checks.append({"check": "academic_standing", "passed": True,
+                                        "detail": f"Academic standing: {_student_data.get('academic_standing')}"})
+
+                # GPA check
+                min_gpa = course_info.get("min_gpa", 0)
+                student_gpa = _student_data.get("gpa", 0)
+                if min_gpa > 0 and student_gpa < min_gpa:
+                    elig_eligible = False
+                    elig_checks.append({"check": "min_gpa", "passed": False,
+                                        "detail": f"Course requires GPA ≥ {min_gpa}, student has {student_gpa}."})
+                else:
+                    elig_checks.append({"check": "min_gpa", "passed": True,
+                                        "detail": f"GPA requirement met ({student_gpa} ≥ {min_gpa})."})
+
+                # Credits check
+                min_credits = course_info.get("min_credits", 0)
+                total_credits = _student_data.get("total_credits", 0)
+                if min_credits > 0 and total_credits < min_credits:
+                    elig_eligible = False
+                    elig_checks.append({"check": "min_credits", "passed": False,
+                                        "detail": f"Course requires ≥ {min_credits} credits, student has {total_credits}."})
+                else:
+                    elig_checks.append({"check": "min_credits", "passed": True,
+                                        "detail": f"Credit requirement met ({total_credits} ≥ {min_credits})."})
+
+                # Prerequisites
+                if "error" not in _prereq_data:
+                    if not _prereq_data.get("all_met", True):
+                        elig_eligible = False
+                        unmet = [p for p in _prereq_data.get("prerequisites", []) if not p["met"]]
+                        unmet_str = ", ".join([f"{p['prerequisite_code']} (need {p['min_grade_required']})" for p in unmet])
+                        elig_checks.append({"check": "prerequisites", "passed": False,
+                                            "detail": f"Unmet prerequisites: {unmet_str}"})
+                    else:
+                        elig_checks.append({"check": "prerequisites", "passed": True, "detail": "All prerequisites met."})
+
+                # Already completed / enrolled
+                course_code_upper = course_code.upper()
+                if course_code_upper in completed_codes_set:
+                    elig_eligible = False
+                    elig_checks.append({"check": "already_completed", "passed": False,
+                                        "detail": "Student has already completed this course."})
+                elif course_code_upper in set(_student_data.get("current_enrollment_codes", [])):
+                    elig_eligible = False
+                    elig_checks.append({"check": "already_enrolled", "passed": False,
+                                        "detail": "Student is currently enrolled in this course."})
+                else:
+                    elig_checks.append({"check": "not_duplicate", "passed": True,
+                                        "detail": "Not previously completed or enrolled."})
+
+                _eligibility_data = {
+                    "eligible": elig_eligible,
+                    "student": {k: _student_data.get(k) for k in ["id", "student_number", "full_name", "gpa", "total_credits", "status", "academic_standing"]},
+                    "course": course_info,
+                    "checks": elig_checks,
+                }
+                _student_data["eligibility_check"] = _eligibility_data
+
+        # Process graduation data
+        if "grad" in phase_b_map:
+            _grad_data = phase_b_map["grad"]
             _student_data["graduation_progress"] = _grad_data
 
-        # Get warnings
-        warnings = await queries.get_student_warnings(session, student_id)
-        _student_data["active_warnings"] = warnings
+        # Process warnings
+        _student_data["active_warnings"] = phase_b_map.get("warnings", [])
 
         return _student_data, _prereq_data, _eligibility_data, _grad_data
 
@@ -403,8 +593,8 @@ async def _handle_hybrid_query(
     )
 
     # Step 5: Call LLM
-    llm_response = await _call_ollama(prompt)
-    if _ollama_unavailable(llm_response):
+    llm_response = await _call_groq(prompt)
+    if _llm_unavailable(llm_response):
         llm_response = _build_no_llm_answer(rule_checks, student_data, documents)
 
     # Step 6: Parse the structured response
@@ -518,8 +708,7 @@ async def _call_groq(prompt: str) -> str:
             ],
             "temperature": 0.6,
             "top_p": 0.95,
-            "max_completion_tokens": 4096,
-            "reasoning_effort": "default"
+            "max_completion_tokens": 4096
         }
         
         headers = {
@@ -578,7 +767,6 @@ async def _call_groq_stream(prompt: str):
             "temperature": 0.6,
             "top_p": 0.95,
             "max_completion_tokens": 4096,
-            "reasoning_effort": "default",
             "stream": True
         }
         
@@ -620,188 +808,8 @@ async def _call_groq_stream(prompt: str):
         yield _fallback_response(prompt)
 
 
-async def _call_gemini(prompt: str) -> str:
-    """Send a prompt to the Gemini API and return the full response."""
-    if not settings.GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
-        return _fallback_response(prompt)
-
-    try:
-        client = _get_http_client()
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
-        
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": 4096
-            }
-        }
-        
-        response = await client.post(
-            url,
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
-
-        if response.status_code == 200:
-            res_json = response.json()
-            try:
-                content = res_json['candidates'][0].get('content', {})
-                parts = content.get('parts', [])
-                if parts and 'text' in parts[0]:
-                    text = parts[0]['text']
-                    # Strip think blocks
-                    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-                    return text
-                else:
-                    logger.error(f"Gemini response content has no text parts: {res_json}")
-                    return _fallback_response(prompt)
-            except (KeyError, IndexError) as e:
-                logger.error(f"Unexpected Gemini response structure: {res_json}")
-                return _fallback_response(prompt)
-        else:
-            logger.error(f"Gemini API returned status {response.status_code}: {response.text[:200]}")
-            return _fallback_response(prompt)
-
-    except httpx.TimeoutException:
-        logger.error("Gemini request timed out")
-        return _fallback_response(prompt)
-    except httpx.ConnectError:
-        logger.error("Could not connect to Gemini API. Check your internet connection.")
-        return _fallback_response(prompt)
-    except Exception as e:
-        logger.error(f"Gemini error: {e}", exc_info=True)
-        return _fallback_response(prompt)
-
-
-async def _call_gemini_stream(prompt: str):
-    """Stream tokens from the Gemini API."""
-    if not settings.GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY is not set. Please add it to your .env file.")
-        yield _fallback_response(prompt)
-        return
-
-    try:
-        client = _get_http_client()
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:streamGenerateContent?alt=sse&key={settings.GEMINI_API_KEY}"
-        
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": 4096
-            }
-        }
-
-        async with client.stream(
-            "POST",
-            url,
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        ) as response:
-            if response.status_code != 200:
-                error_text = await response.aread()
-                logger.error(f"Gemini stream error: {response.status_code} - {error_text[:200]}")
-                yield _fallback_response(prompt)
-                return
-
-            async for line in response.aiter_lines():
-                if not line.strip():
-                    continue
-                if line.startswith("data: "):
-                    json_str = line[len("data: "):]
-                    try:
-                        chunk = json.loads(json_str)
-                        token = chunk['candidates'][0]['content']['parts'][0].get('text', '')
-                        if token:
-                            yield token
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
-
-    except httpx.TimeoutException:
-        logger.error("Gemini stream timed out")
-        yield _fallback_response(prompt)
-    except httpx.ConnectError:
-        logger.error("Could not connect to Gemini API. Check your internet connection.")
-        yield _fallback_response(prompt)
-    except Exception as e:
-        logger.error(f"Gemini stream error: {e}", exc_info=True)
-        yield _fallback_response(prompt)
-
-
-async def _call_ollama(prompt: str) -> str:
-    """
-    Send a prompt to the LLM (Groq if configured, otherwise Gemini API)
-    and return the full response.
-    Falls back to Gemini if Groq fails.
-    """
-    if settings.GROQ_API_KEY:
-        try:
-            logger.info("Attempting to call Groq API...")
-            response = await _call_groq(prompt)
-            if not _ollama_unavailable(response):
-                return response
-            logger.warning("Groq API returned fallback, trying Gemini API as backup...")
-        except Exception as e:
-            logger.error(f"Groq API call failed: {e}. trying Gemini API as backup...")
-
-    return await _call_gemini(prompt)
-
-
-async def _call_ollama_stream(prompt: str):
-    """
-    Stream tokens from LLM (Groq if configured, otherwise Gemini API).
-    Falls back to Gemini stream if Groq fails.
-    """
-    if settings.GROQ_API_KEY:
-        try:
-            logger.info("Attempting to stream from Groq...")
-            generator = _strip_think_stream(_call_groq_stream(prompt))
-            
-            # Peek at the first token to check for fallback
-            first_token = None
-            try:
-                first_token = await asyncio.wait_for(anext(generator), timeout=10.0)
-            except StopAsyncIteration:
-                pass
-            except Exception as e:
-                logger.error(f"Failed to get first token from Groq stream: {e}")
-            
-            if first_token is not None:
-                if not _ollama_unavailable(first_token):
-                    # Groq stream is working! Yield the first token and all subsequent ones
-                    yield first_token
-                    async for token in generator:
-                        yield token
-                    return
-                else:
-                    logger.warning("Groq stream returned fallback token, trying Gemini stream as backup...")
-            else:
-                logger.warning("Groq stream yielded no tokens, trying Gemini stream as backup...")
-        except Exception as e:
-            logger.error(f"Groq stream failed: {e}. Trying Gemini stream as backup...")
-
-    # Fall back to Gemini stream
-    async for token in _call_gemini_stream(prompt):
-        yield token
-
-
-
-def _ollama_unavailable(text: str) -> bool:
-    """Returns True when _call_ollama returned a fallback/error string."""
+def _llm_unavailable(text: str) -> bool:
+    """Returns True when LLM returned a fallback/error string."""
     return text.startswith("⚠️")
 
 
@@ -1270,8 +1278,8 @@ async def process_query_stream(
             )
             full_accumulated = ""
 
-            async for token in _call_ollama_stream(prompt):
-                if _ollama_unavailable(token):
+            async for token in _strip_think_stream(_call_groq_stream(prompt)):
+                if _llm_unavailable(token):
                     if query_type == QueryType.HYBRID:
                         token = _build_no_llm_answer(rule_checks, student_data, documents or [])
                     elif query_type == QueryType.RAG_ONLY:
@@ -1364,4 +1372,5 @@ async def process_query_stream(
         error_msg = f"I encountered an error while processing your question. Error: {str(e)}"
         yield f"event: token\ndata: {json.dumps({'token': error_msg})}\n\n"
         yield f"event: done\ndata: {json.dumps({'status': 'error'})}\n\n"
+
 
